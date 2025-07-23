@@ -4,13 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/rs/zerolog"
 	"gps-no-sync/internal/models"
 	mqtt2 "gps-no-sync/internal/mqtt"
 	"gps-no-sync/internal/services"
 	"time"
-
-	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
 type DeviceHandler struct {
@@ -48,7 +47,6 @@ func (h *DeviceHandler) HandleMessage(client mqtt.Client, msg mqtt.Message) {
 		return
 	}
 
-	// JSON Payload parsen
 	var deviceRawData models.DeviceRawData
 	if err := json.Unmarshal(payload, &deviceRawData); err != nil {
 		h.logger.Error().Err(err).
@@ -77,12 +75,6 @@ func (h *DeviceHandler) HandleMessage(client mqtt.Client, msg mqtt.Message) {
 func (h *DeviceHandler) validateDeviceData(data *models.DeviceRawData) error {
 	if data.Device.MacAddress == "" {
 		return fmt.Errorf("mac_address is not set")
-	}
-	if data.Device.Name == "" {
-		return fmt.Errorf("device name is not set")
-	}
-	if data.UWB.DeviceType != "TAG" && data.UWB.DeviceType != "ANCHOR" {
-		return fmt.Errorf("unknown device_type: %s", data.UWB.DeviceType)
 	}
 	return nil
 }

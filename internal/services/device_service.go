@@ -29,7 +29,9 @@ func (s *DeviceService) ProcessDeviceData(ctx context.Context, deviceID string, 
 		return nil
 	}
 
-	// Device Type validieren
+	existingDevice, err := s.deviceRepository.FindByMacAddress(ctx, rawData.Device.MacAddress)
+	knownDevice := err == nil
+
 	var deviceType models.DeviceType
 	switch rawData.UWB.DeviceType {
 	case "TAG":
@@ -40,8 +42,12 @@ func (s *DeviceService) ProcessDeviceData(ctx context.Context, deviceID string, 
 		s.logger.Warn().
 			Str("device_id", deviceID).
 			Str("unknown_type", rawData.UWB.DeviceType).
-			Msg("unknown device type, using default 'TAG'")
-		deviceType = models.DeviceTypeTag
+			Msg("unknown device type, keeping old type")
+		if knownDevice {
+			deviceType = existingDevice.DeviceType
+		} else {
+			deviceType = models.DeviceTypeUnknown
+		}
 	}
 
 	device := &models.Device{

@@ -2,6 +2,7 @@ package mqtt
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/rs/zerolog"
@@ -92,6 +93,35 @@ func (c *Client) Subscribe(topic string, handler mqtt.MessageHandler) error {
 	}
 
 	return nil
+}
+
+func (c *Client) Publish(topic string, payload []byte) error {
+	if !c.IsConnected() {
+		return fmt.Errorf("MQTT client is not connected")
+	}
+
+	token := c.client.Publish(topic, 0, false, payload)
+	token.Wait()
+
+	if token.Error() != nil {
+		return fmt.Errorf("failed to publish to topic %s: %w", topic, token.Error())
+	}
+
+	c.logger.Debug().
+		Str("topic", topic).
+		Int("payload_size", len(payload)).
+		Msg("successfully published message")
+
+	return nil
+}
+
+func (c *Client) PublishJSON(topic string, data interface{}) error {
+	payload, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("failed to marshal JSON: %w", err)
+	}
+
+	return c.Publish(topic, payload)
 }
 
 func (c *Client) IsConnected() bool {

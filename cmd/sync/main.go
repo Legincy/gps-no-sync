@@ -7,6 +7,7 @@ import (
 	"gps-no-sync/internal/config"
 	"gps-no-sync/internal/database/influx"
 	"gps-no-sync/internal/database/postgres"
+	"gps-no-sync/internal/database/postgres/events"
 	"gps-no-sync/internal/database/postgres/repositories"
 	"gps-no-sync/internal/logger"
 	"gps-no-sync/internal/mqtt"
@@ -74,12 +75,12 @@ func (app *Application) initialize() error {
 		return fmt.Errorf("error while initialize databases: %w", err)
 	}
 
-	if err := app.initializeServices(); err != nil {
-		return fmt.Errorf("error while initializing services: %w", err)
-	}
-
 	if err := app.initializeMQTT(); err != nil {
 		return fmt.Errorf("error while initializing MQTT: %w", err)
+	}
+
+	if err := app.initializeServices(); err != nil {
+		return fmt.Errorf("error while initializing services: %w", err)
 	}
 
 	log.Info().Msg("Successfully initialized application")
@@ -120,6 +121,14 @@ func (app *Application) initializeServices() error {
 		measurementWriter,
 		logger.GetLogger("ranging-service"),
 	)
+
+	deviceEventPublisher := services.NewDeviceEventPublisher(
+		app.mqttClient,
+		app.topicManager,
+		logger.GetLogger("device-event-publisher"),
+	)
+
+	events.DeviceEventPublisher = deviceEventPublisher.PublishDeviceEvent
 
 	log.Info().Msg("Successfully initialized services")
 	return nil

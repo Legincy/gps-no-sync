@@ -3,9 +3,9 @@ package repositories
 import (
 	"context"
 	"errors"
+	"fmt"
 	"gorm.io/gorm"
 	"gps-no-sync/internal/models"
-	"strings"
 	"time"
 )
 
@@ -23,24 +23,35 @@ func (r *DeviceRepository) CreateOrUpdate(ctx context.Context, device *models.De
 
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var existingDevice models.Device
-		err := tx.Where("mac_address = ?", device.MacAddress).First(&existingDevice).Error
+		result := tx.Where("mac_address = ?", device.MacAddress).First(&existingDevice)
 
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			if device.Name == "" {
-				macSplit := strings.Split(device.MacAddress, ":")
-				macIdentifier := strings.Join(macSplit[3:5], "")
-				device.Name = "Device_" + macIdentifier
-			}
+		if result.Error == nil {
+			fmt.Printf("Updating device: %s\n", device.MacAddress)
+
+			return tx.Model(&existingDevice).Updates(map[string]interface{}{
+				"name":        device.Name,
+				"device_type": device.DeviceType,
+				"last_seen":   now,
+			}).Error
+
+		} else if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			fmt.Printf("Creating device: %s\n", device.MacAddress)
+
+			/*
+				if device.Name == "" {
+					macSplit := strings.Split(device.MacAddress, ":")
+					if len(macSplit) >= 5 {
+						macIdentifier := strings.Join(macSplit[3:6], "")
+						device.Name = "Device_" + macIdentifier
+					}
+				}
+			*/
+
 			return tx.Create(device).Error
-		} else if err != nil {
-			return err
+
+		} else {
+			return result.Error
 		}
-
-		existingDevice.Name = device.Name
-		existingDevice.DeviceType = device.DeviceType
-		existingDevice.LastSeen = now
-
-		return tx.Save(&existingDevice).Error
 	})
 }
 
