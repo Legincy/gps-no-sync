@@ -13,9 +13,9 @@ type DeviceService struct {
 	logger           zerolog.Logger
 }
 
-func NewDeviceService(deviceRepo *repositories.DeviceRepository, logger zerolog.Logger) *DeviceService {
+func NewDeviceService(deviceRepository *repositories.DeviceRepository, logger zerolog.Logger) *DeviceService {
 	return &DeviceService{
-		deviceRepository: deviceRepo,
+		deviceRepository: deviceRepository,
 		logger:           logger,
 	}
 }
@@ -29,7 +29,14 @@ func (s *DeviceService) ProcessDeviceData(ctx context.Context, deviceID string, 
 		return nil
 	}
 
+	if s.deviceRepository == nil {
+		return fmt.Errorf("device repository is not initialized")
+	}
+
+	fmt.Printf("Processing device data for device ID: %+v\n", rawData.Device.MacAddress)
+
 	existingDevice, err := s.deviceRepository.FindByMacAddress(ctx, rawData.Device.MacAddress)
+	fmt.Printf("Existing device: %+v\n", existingDevice)
 	knownDevice := err == nil
 
 	var deviceType models.DeviceType

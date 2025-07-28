@@ -16,12 +16,12 @@ type PostgresDB struct {
 	db *gorm.DB
 }
 
-func NewConnection(cfg *config.PostgresConfig) (*PostgresDB, error) {
+func NewConnection(cfg config.PostgresConfig) (*PostgresDB, error) {
 	newLogger := logger.New(
 		log.New(os.Stdout, "\r\n", log.LstdFlags),
 		logger.Config{
 			SlowThreshold:             time.Second,
-			LogLevel:                  logger.Info,
+			LogLevel:                  logger.Silent,
 			IgnoreRecordNotFoundError: true,
 			Colorful:                  false,
 		},

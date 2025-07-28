@@ -1,7 +1,6 @@
 package config
 
 import (
-	"fmt"
 	"github.com/joho/godotenv"
 	"os"
 	"strconv"
@@ -119,18 +118,20 @@ func Load() (*Config, error) {
 }
 
 func (c *Config) validate() error {
-	if c.MQTT.Host == "" {
-		return fmt.Errorf("MQTT_HOST has to be set")
-	}
-	if c.Postgres.Host == "" {
-		return fmt.Errorf("POSTGRES_HOST has to be set")
-	}
-	if c.InfluxDB.URL == "" {
-		return fmt.Errorf("INFLUXDB_URL gas to be set")
-	}
-	if c.InfluxDB.Token == "" {
-		return fmt.Errorf("INFLUXDB_TOKEN has to be set")
-	}
+	/*
+		if c.MQTT.Host == "" {
+			return fmt.Errorf("MQTT_HOST has to be set")
+		}
+		if c.Postgres.Host == "" {
+			return fmt.Errorf("POSTGRES_HOST has to be set")
+		}
+		if c.InfluxDB.URL == "" {
+			return fmt.Errorf("INFLUXDB_URL gas to be set")
+		}
+		if c.InfluxDB.Token == "" {
+			return fmt.Errorf("INFLUXDB_TOKEN has to be set")
+		}
+	*/
 	return nil
 }
 

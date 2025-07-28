@@ -57,10 +57,12 @@ func (r *DeviceRepository) CreateOrUpdate(ctx context.Context, device *models.De
 
 func (r *DeviceRepository) FindByMacAddress(ctx context.Context, macAddress string) (*models.Device, error) {
 	var device models.Device
+	fmt.Printf("FindByMacAddress: %+v\n", macAddress)
 	err := r.db.WithContext(ctx).Preload("Cluster").Where("mac_address = ?", macAddress).First(&device).Error
 	if err != nil {
 		return nil, err
 	}
+	fmt.Printf("Found device: %+v\n", device)
 	return &device, nil
 }
 

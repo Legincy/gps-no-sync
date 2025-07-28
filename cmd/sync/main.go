@@ -7,7 +7,7 @@ import (
 	"gps-no-sync/internal/config"
 	"gps-no-sync/internal/database/influx"
 	"gps-no-sync/internal/database/postgres"
-	"gps-no-sync/internal/database/postgres/events"
+	"gps-no-sync/internal/database/postgres/listeners"
 	"gps-no-sync/internal/database/postgres/repositories"
 	"gps-no-sync/internal/logger"
 	"gps-no-sync/internal/mqtt"
@@ -22,8 +22,9 @@ import (
 type Application struct {
 	config *config.Config
 
-	postgresDB *postgres.PostgresDB
-	influxDB   *influx.InfluxDB
+	postgresDB      *postgres.PostgresDB
+	listenerManager *listeners.ListenerManager
+	influxDB        *influx.InfluxDB
 
 	deviceRepository  *repositories.DeviceRepository
 	clusterRepository *repositories.ClusterRepository
@@ -61,7 +62,7 @@ func (app *Application) initialize() error {
 		return fmt.Errorf("failed to load config: %v", err)
 	}
 
-	logger.NewLogger(&app.config.Logger)
+	logger.NewLogger(app.config.Logger)
 	log.Info().
 		Str("service", "gps-no-sync").
 		Str("version", "1.0.0").
@@ -75,14 +76,17 @@ func (app *Application) initialize() error {
 		return fmt.Errorf("error while initialize databases: %w", err)
 	}
 
-	if err := app.initializeMQTT(); err != nil {
-		return fmt.Errorf("error while initializing MQTT: %w", err)
-	}
-
 	if err := app.initializeServices(); err != nil {
 		return fmt.Errorf("error while initializing services: %w", err)
 	}
 
+	if err := app.initializeMQTT(); err != nil {
+		return fmt.Errorf("error while initializing MQTT: %w", err)
+	}
+
+	if err := app.setupTableListeners(); err != nil {
+		return fmt.Errorf("error while setting up table listeners: %w", err)
+	}
 	log.Info().Msg("Successfully initialized application")
 	return nil
 }
@@ -90,10 +94,16 @@ func (app *Application) initialize() error {
 func (app *Application) initializeDatabases() error {
 	var err error
 
-	app.postgresDB, err = postgres.NewConnection(&app.config.Postgres)
+	app.postgresDB, err = postgres.NewConnection(app.config.Postgres)
 	if err != nil {
 		return fmt.Errorf("could not connection to PostgreSQL: %w", err)
 	}
+
+	app.listenerManager = listeners.NewListenerManager(
+		app.postgresDB.GetDB(),
+		&app.config.Postgres,
+		logger.GetLogger("listener-manager"),
+	)
 
 	app.influxDB, err = influx.NewConnection(&app.config.InfluxDB)
 	if err != nil {
@@ -103,8 +113,29 @@ func (app *Application) initializeDatabases() error {
 	return nil
 }
 
+func (app *Application) setupTableListeners() error {
+	deviceListener := listeners.NewDeviceTableListener(
+		logger.GetLogger("device-listener"),
+		app.mqttClient,
+		app.topicManager,
+		app.deviceService,
+	)
+	if err := app.listenerManager.RegisterListener(deviceListener); err != nil {
+		return fmt.Errorf("failed to register device listener: %w", err)
+	}
+
+	if err := app.listenerManager.Initialize(); err != nil {
+		return fmt.Errorf("failed to initialize listener manager: %w", err)
+	}
+
+	app.listenerManager.Start()
+
+	log.Info().Msg("✅ All table listeners initialized and started")
+	return nil
+}
+
 func (app *Application) initializeServices() error {
-	deviceRepo := repositories.NewDeviceRepository(app.postgresDB.GetDB())
+	app.deviceRepository = repositories.NewDeviceRepository(app.postgresDB.GetDB())
 
 	measurementWriter := influx.NewRangingWriter(
 		app.influxDB.GetWriteAPI(),
@@ -112,23 +143,15 @@ func (app *Application) initializeServices() error {
 	)
 
 	app.deviceService = services.NewDeviceService(
-		deviceRepo,
+		app.deviceRepository,
 		logger.GetLogger("device-service"),
 	)
 
 	app.rangingService = services.NewRangingService(
-		deviceRepo,
+		app.deviceRepository,
 		measurementWriter,
 		logger.GetLogger("ranging-service"),
 	)
-
-	deviceEventPublisher := services.NewDeviceEventPublisher(
-		app.mqttClient,
-		app.topicManager,
-		logger.GetLogger("device-event-publisher"),
-	)
-
-	events.DeviceEventPublisher = deviceEventPublisher.PublishDeviceEvent
 
 	log.Info().Msg("Successfully initialized services")
 	return nil
@@ -189,6 +212,10 @@ func (app *Application) run() error {
 }
 
 func (app *Application) shutdown() error {
+	if app.listenerManager != nil {
+		app.listenerManager.Stop()
+	}
+
 	if app.mqttClient != nil {
 		app.mqttClient.Disconnect()
 	}
@@ -204,6 +231,5 @@ func (app *Application) shutdown() error {
 	}
 
 	app.cancelFunc()
-
 	return nil
 }

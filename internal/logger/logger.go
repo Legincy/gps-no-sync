@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func NewLogger(cfg *config.LoggerConfig) zerolog.Logger {
+func NewLogger(cfg config.LoggerConfig) zerolog.Logger {
 	level := zerolog.InfoLevel
 	switch strings.ToLower(cfg.Level) {
 	case "debug":
