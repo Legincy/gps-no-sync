@@ -25,7 +25,7 @@ func NewDeviceHandler(topicManager *mqtt2.TopicManager, deviceService *services.
 		deviceService: deviceService,
 		logger:        logger,
 		topicManager:  topicManager,
-		handlerTopic:  topicManager.BuildDeviceTopicSubscription(),
+		handlerTopic:  topicManager.GetDeviceRawTopic(),
 	}
 }
 

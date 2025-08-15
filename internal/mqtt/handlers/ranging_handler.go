@@ -25,7 +25,7 @@ func NewRangingHandler(topicManager *mqtt2.TopicManager, rangingService *service
 		rangingService: rangingService,
 		logger:         logger,
 		topicManager:   topicManager,
-		handlerTopic:   topicManager.BuildRangingTopicSubscription(),
+		handlerTopic:   topicManager.GetUwbRangingTopic(),
 	}
 }
 
@@ -43,7 +43,7 @@ func (h *RangingHandler) HandleMessage(client mqtt.Client, msg mqtt.Message) {
 
 	deviceID, err := h.topicManager.ExtractDeviceIDFromTopic(topic, h.handlerTopic)
 	if err != nil {
-		h.logger.Error().Err(err).Str("topic", topic).Msg("Konnte Device ID nicht aus Topic extrahieren")
+		h.logger.Error().Err(err).Str("topic", topic).Msg("Could not extract device ID from topic")
 		return
 	}
 

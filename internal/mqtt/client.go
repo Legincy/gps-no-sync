@@ -52,10 +52,6 @@ func NewClient(cfg *config.MQTTConfig, logger zerolog.Logger) (*Client, error) {
 }
 
 func (c *Client) Connect(ctx context.Context) error {
-	c.logger.Info().
-		Str("broker", fmt.Sprintf("%s:%d", c.config.Host, c.config.Port)).
-		Msg("connecting to MQTT broker...")
-
 	token := c.client.Connect()
 
 	select {
@@ -83,14 +79,14 @@ func (c *Client) Subscribe(topic string, handler mqtt.MessageHandler) error {
 		return fmt.Errorf("MQTT client is not connected, cannot subscribe to topic %s", topic)
 	}
 
-	c.logger.Info().Str("topic", topic).Msg("subscribing to MQTT topic")
-
 	token := c.client.Subscribe(topic, c.config.QoS, handler)
 	token.Wait()
 
 	if token.Error() != nil {
 		return fmt.Errorf("error subscribing to topic %s: %w", topic, token.Error())
 	}
+
+	c.logger.Info().Str("topic", topic).Msg("Added topic subscription")
 
 	return nil
 }
@@ -121,6 +117,7 @@ func (c *Client) PublishJSON(topic string, data interface{}) error {
 		return fmt.Errorf("failed to marshal JSON: %w", err)
 	}
 
+	fmt.Printf("Topic: &")
 	return c.Publish(topic, payload)
 }
 
@@ -130,10 +127,12 @@ func (c *Client) IsConnected() bool {
 
 func (c *Client) onConnect(client mqtt.Client) {
 	c.connected = true
-	c.logger.Info().Msg("successfully connected to MQTT broker")
+	c.logger.Info().
+		Str("broker", c.config.Host).
+		Msg("Successfully connected to broker")
 }
 
 func (c *Client) onConnectionLost(client mqtt.Client, err error) {
 	c.connected = false
-	c.logger.Warn().Err(err).Msg("lost connection to MQTT broker")
+	c.logger.Warn().Err(err).Msg("lost connection to broker")
 }

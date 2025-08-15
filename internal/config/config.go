@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"github.com/joho/godotenv"
 	"os"
 	"strconv"
@@ -35,6 +36,7 @@ type PostgresConfig struct {
 	Port     int    `json:"port"`
 	User     string `json:"user"`
 	Password string `json:"password"`
+	Dsn      string `json:"dsn"`
 	Database string `json:"database"`
 	SSLMode  string `json:"ssl_mode"`
 	TimeZone string `json:"timezone"`
@@ -113,6 +115,17 @@ func Load() (*Config, error) {
 	if found {
 		config.MQTT.BaseTopic = baseTopic
 	}
+
+	config.Postgres.Dsn = fmt.Sprintf(
+		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s TimeZone=UTC",
+		config.Postgres.Host, config.Postgres.Port, config.Postgres.User, config.Postgres.Password, config.Postgres.Database,
+		func() string {
+			if config.Postgres.SSLMode == "false" || config.Postgres.SSLMode == "" {
+				return "disable"
+			}
+			return config.Postgres.SSLMode
+		}(),
+	)
 
 	return config, config.validate()
 }

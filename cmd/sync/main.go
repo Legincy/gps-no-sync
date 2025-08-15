@@ -64,7 +64,7 @@ func (app *Application) initialize() error {
 
 	logger.NewLogger(app.config.Logger)
 	log.Info().
-		Str("service", "gps-no-sync").
+		Str("component", "main").
 		Str("version", "1.0.0").
 		Msg("Setting up service...")
 
@@ -76,12 +76,20 @@ func (app *Application) initialize() error {
 		return fmt.Errorf("error while initialize databases: %w", err)
 	}
 
+	if err := app.initializeMQTT(); err != nil {
+		return fmt.Errorf("error while initializing MQTT: %w", err)
+	}
+
+	if err := app.initializeRepositories(); err != nil {
+		return fmt.Errorf("error while initializing repositories: %w", err)
+	}
+
 	if err := app.initializeServices(); err != nil {
 		return fmt.Errorf("error while initializing services: %w", err)
 	}
 
-	if err := app.initializeMQTT(); err != nil {
-		return fmt.Errorf("error while initializing MQTT: %w", err)
+	if err := app.setupTopicHandlers(); err != nil {
+		return fmt.Errorf("error while setting up topic handlers: %w", err)
 	}
 
 	if err := app.setupTableListeners(); err != nil {
@@ -99,21 +107,51 @@ func (app *Application) initializeDatabases() error {
 		return fmt.Errorf("could not connection to PostgreSQL: %w", err)
 	}
 
-	app.listenerManager = listeners.NewListenerManager(
-		app.postgresDB.GetDB(),
-		&app.config.Postgres,
-		logger.GetLogger("listener-manager"),
-	)
-
 	app.influxDB, err = influx.NewConnection(&app.config.InfluxDB)
 	if err != nil {
 		return fmt.Errorf("could not connect to InfluxDB: %w", err)
+	}
+
+	log.Info().
+		Str("component", "main").
+		Str("host", app.config.Postgres.Host).
+		Msg("Successfully initialized databases")
+	return nil
+}
+
+func (app *Application) setupTopicHandlers() error {
+	app.deviceHandler = handlers.NewDeviceHandler(
+		app.topicManager,
+		app.deviceService,
+		logger.GetLogger("device-handler"),
+	)
+
+	app.rangingHandler = handlers.NewRangingHandler(
+		app.topicManager,
+		app.rangingService,
+		logger.GetLogger("ranging-handler"),
+	)
+
+	deviceTopic := app.topicManager.GetDeviceRawTopic()
+	if err := app.mqttClient.Subscribe(deviceTopic, app.deviceHandler.HandleMessage); err != nil {
+		return fmt.Errorf("error subscribing to Device Topic: %w", err)
+	}
+
+	rangingTopic := app.topicManager.GetUwbRangingTopic()
+	if err := app.mqttClient.Subscribe(rangingTopic, app.rangingHandler.HandleMessage); err != nil {
+		return fmt.Errorf("error subscribing to Ranging Topic: %w", err)
 	}
 
 	return nil
 }
 
 func (app *Application) setupTableListeners() error {
+	app.listenerManager = listeners.NewListenerManager(
+		app.postgresDB.GetDB(),
+		&app.config.Postgres,
+		logger.GetLogger("listener-manager"),
+	)
+
 	deviceListener := listeners.NewDeviceTableListener(
 		logger.GetLogger("device-listener"),
 		app.mqttClient,
@@ -130,12 +168,23 @@ func (app *Application) setupTableListeners() error {
 
 	app.listenerManager.Start()
 
-	log.Info().Msg("✅ All table listeners initialized and started")
+	log.Info().Msg("All table listeners initialized and started")
+	return nil
+}
+
+func (app *Application) initializeRepositories() error {
+	db := app.postgresDB.GetDB()
+
+	app.deviceRepository = repositories.NewDeviceRepository(db)
+	app.clusterRepository = repositories.NewClusterRepository(db)
+
+	log.Info().
+		Str("component", "main").
+		Msg("Successfully initialized repositories")
 	return nil
 }
 
 func (app *Application) initializeServices() error {
-	app.deviceRepository = repositories.NewDeviceRepository(app.postgresDB.GetDB())
 
 	measurementWriter := influx.NewRangingWriter(
 		app.influxDB.GetWriteAPI(),
@@ -144,6 +193,8 @@ func (app *Application) initializeServices() error {
 
 	app.deviceService = services.NewDeviceService(
 		app.deviceRepository,
+		app.mqttClient,
+		app.topicManager,
 		logger.GetLogger("device-service"),
 	)
 
@@ -153,12 +204,16 @@ func (app *Application) initializeServices() error {
 		logger.GetLogger("ranging-service"),
 	)
 
-	log.Info().Msg("Successfully initialized services")
+	log.Info().
+		Str("component", "main").
+		Msg("Successfully initialized services")
 	return nil
 }
 
 func (app *Application) initializeMQTT() error {
 	var err error
+
+	app.topicManager = &mqtt.TopicManager{BaseTopic: app.config.MQTT.BaseTopic}
 
 	app.mqttClient, err = mqtt.NewClient(&app.config.MQTT, logger.GetLogger("mqtt-client"))
 	if err != nil {
@@ -172,31 +227,10 @@ func (app *Application) initializeMQTT() error {
 		return fmt.Errorf("could not connect to MQTT broker: %w", err)
 	}
 
-	app.topicManager = &mqtt.TopicManager{BaseTopic: app.config.MQTT.BaseTopic}
+	log.Info().
+		Str("component", "main").
+		Msg("Successfully initialized MQTT client")
 
-	app.deviceHandler = handlers.NewDeviceHandler(
-		app.topicManager,
-		app.deviceService,
-		logger.GetLogger("device-handler"),
-	)
-
-	app.rangingHandler = handlers.NewRangingHandler(
-		app.topicManager,
-		app.rangingService,
-		logger.GetLogger("ranging-handler"),
-	)
-
-	deviceTopic := app.topicManager.BuildDeviceTopicSubscription()
-	if err := app.mqttClient.Subscribe(deviceTopic, app.deviceHandler.HandleMessage); err != nil {
-		return fmt.Errorf("error subscribing to Device Topic: %w", err)
-	}
-
-	rangingTopic := app.topicManager.BuildRangingTopicSubscription()
-	if err := app.mqttClient.Subscribe(rangingTopic, app.rangingHandler.HandleMessage); err != nil {
-		return fmt.Errorf("error subscribing to Ranging Topic: %w", err)
-	}
-
-	log.Info().Msg("Successfully initialized MQTT client and handlers")
 	return nil
 }
 

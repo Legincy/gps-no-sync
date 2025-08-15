@@ -24,24 +24,16 @@ type ListenerManager struct {
 func NewListenerManager(db *gorm.DB, cfg *config.PostgresConfig, logger zerolog.Logger) *ListenerManager {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	dsn := fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s TimeZone=UTC",
-		cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.Database,
-		func() string {
-			if cfg.SSLMode == "false" || cfg.SSLMode == "" {
-				return "disable"
-			}
-			return cfg.SSLMode
-		}(),
-	)
-
 	reportProblem := func(ev pq.ListenerEventType, err error) {
 		if err != nil {
-			logger.Error().Err(err).Msg("PostgreSQL listener error")
+			logger.Error().
+				Str("component", "listener-manager").
+				Err(err).
+				Msg("PostgresSQL listener error")
 		}
 	}
 
-	listener := pq.NewListener(dsn, 10*time.Second, time.Minute, reportProblem)
+	listener := pq.NewListener(cfg.Dsn, 10*time.Second, time.Minute, reportProblem)
 
 	return &ListenerManager{
 		db:        db,
@@ -65,10 +57,10 @@ func (lm *ListenerManager) RegisterListener(listener TableListener) error {
 			return fmt.Errorf("failed to listen on channel %s: %w", channelName, err)
 		}
 		lm.channels[channelName] = true
-		lm.logger.Info().Str("channel", channelName).Msg("Registered PostgreSQL listener channel")
 	}
 
 	lm.logger.Info().
+		Str("component", "listener-manager").
 		Str("table", tableName).
 		Str("channel", channelName).
 		Msg("Registered table listener")
@@ -81,7 +73,9 @@ func (lm *ListenerManager) Initialize() error {
 		return fmt.Errorf("failed to setup triggers: %w", err)
 	}
 
-	lm.logger.Info().Msg("Listener manager initialized")
+	lm.logger.Info().
+		Str("component", "listener-manager").
+		Msg("Listener manager initialized")
 	return nil
 }
 
@@ -153,11 +147,16 @@ func (lm *ListenerManager) listenForChanges() {
 			}
 		case <-time.After(90 * time.Second):
 			if err := lm.listener.Ping(); err != nil {
-				lm.logger.Error().Err(err).Msg("PostgreSQL listener ping failed")
+				lm.logger.Error().
+					Str("component", "listener-manager").
+					Err(err).
+					Msg("PostgreSQL listener ping failed")
 				return
 			}
 		case <-lm.ctx.Done():
-			lm.logger.Info().Msg("Table listener manager stopping...")
+			lm.logger.Info().
+				Str("component", "listener-manager").
+				Msg("Table listener manager stopping...")
 			return
 		}
 	}
@@ -166,13 +165,19 @@ func (lm *ListenerManager) listenForChanges() {
 func (lm *ListenerManager) handleNotification(payload string) {
 	var event TableChangeEvent
 	if err := json.Unmarshal([]byte(payload), &event); err != nil {
-		lm.logger.Error().Err(err).Str("payload", payload).Msg("Failed to parse notification")
+		lm.logger.Error().Err(err).
+			Str("component", "listener-manager").
+			Str("payload", payload).
+			Msg("Failed to parse notification")
 		return
 	}
 
 	tableListeners, exists := lm.listeners[event.Table]
 	if !exists {
-		lm.logger.Debug().Str("table", event.Table).Msg("No listeners registered for table")
+		lm.logger.Debug().
+			Str("component", "listener-manager").
+			Str("table", event.Table).
+			Msg("No listeners registered for table")
 		return
 	}
 
@@ -183,6 +188,7 @@ func (lm *ListenerManager) handleNotification(payload string) {
 
 			if err := l.HandleChange(ctx, &event); err != nil {
 				lm.logger.Error().Err(err).
+					Str("component", "listener-manager").
 					Str("table", event.Table).
 					Str("listener", fmt.Sprintf("%T", l)).
 					Msg("Error handling table change")
@@ -192,13 +198,17 @@ func (lm *ListenerManager) handleNotification(payload string) {
 }
 
 func (lm *ListenerManager) Start() {
-	lm.logger.Info().Msg("🎧 Starting table listener manager...")
+	lm.logger.Info().
+		Str("component", "listener-manager").
+		Msg("Starting table listener manager...")
 	go lm.listenForChanges()
 }
 
 func (lm *ListenerManager) Stop() {
 	if lm != nil {
 		lm.cancel()
-		lm.logger.Info().Msg("Table listener manager stopped")
+		lm.logger.Info().
+			Str("component", "listener-manager").
+			Msg("Table listener manager stopped")
 	}
 }

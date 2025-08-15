@@ -27,18 +27,7 @@ func NewConnection(cfg config.PostgresConfig) (*PostgresDB, error) {
 		},
 	)
 
-	dsn := fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s TimeZone=UTC",
-		cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.Database,
-		func() string {
-			if cfg.SSLMode == "false" || cfg.SSLMode == "" {
-				return "disable"
-			}
-			return cfg.SSLMode
-		}(),
-	)
-
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
+	db, err := gorm.Open(postgres.Open(cfg.Dsn), &gorm.Config{
 		Logger: newLogger,
 	})
 	if err != nil {

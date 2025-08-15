@@ -21,11 +21,11 @@ const (
 	RangingTopicTemplate = "%s/+/uwb/ranging"
 )
 
-func (m *TopicManager) BuildDeviceTopicSubscription() string {
+func (m *TopicManager) GetDeviceRawTopic() string {
 	return fmt.Sprintf(DeviceTopicTemplate, m.BaseTopic)
 }
 
-func (m *TopicManager) BuildRangingTopicSubscription() string {
+func (m *TopicManager) GetUwbRangingTopic() string {
 	return fmt.Sprintf(RangingTopicTemplate, m.BaseTopic)
 }
 
