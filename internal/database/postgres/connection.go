@@ -55,7 +55,7 @@ func NewConnection(cfg config.PostgresConfig) (*PostgresDB, error) {
 func (p *PostgresDB) migrate() error {
 	return p.db.AutoMigrate(
 		&models.Cluster{},
-		&models.Device{},
+		&models.Station{},
 	)
 }
 

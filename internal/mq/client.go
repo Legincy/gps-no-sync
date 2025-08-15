@@ -1,4 +1,4 @@
-package mqtt
+package mq
 
 import (
 	"context"
@@ -117,7 +117,6 @@ func (c *Client) PublishJSON(topic string, data interface{}) error {
 		return fmt.Errorf("failed to marshal JSON: %w", err)
 	}
 
-	fmt.Printf("Topic: &")
 	return c.Publish(topic, payload)
 }
 

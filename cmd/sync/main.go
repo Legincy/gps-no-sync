@@ -10,8 +10,8 @@ import (
 	"gps-no-sync/internal/database/postgres/listeners"
 	"gps-no-sync/internal/database/postgres/repositories"
 	"gps-no-sync/internal/logger"
-	"gps-no-sync/internal/mqtt"
-	"gps-no-sync/internal/mqtt/handlers"
+	"gps-no-sync/internal/mq"
+	"gps-no-sync/internal/mq/handlers"
 	"gps-no-sync/internal/services"
 	"os"
 	"os/signal"
@@ -26,16 +26,14 @@ type Application struct {
 	listenerManager *listeners.ListenerManager
 	influxDB        *influx.InfluxDB
 
-	deviceRepository  *repositories.DeviceRepository
+	deviceRepository  *repositories.StationRepository
 	clusterRepository *repositories.ClusterRepository
 
-	deviceService  *services.DeviceService
-	rangingService *services.RangingService
+	stationService *services.StationService
 
-	mqttClient     *mqtt.Client
-	topicManager   *mqtt.TopicManager
-	deviceHandler  *handlers.DeviceHandler
-	rangingHandler *handlers.RangingHandler
+	mqttClient     *mq.Client
+	topicManager   *mq.TopicManager
+	stationHandler *handlers.StationHandler
 
 	shutdownChan chan os.Signal
 	ctx          context.Context
@@ -120,26 +118,15 @@ func (app *Application) initializeDatabases() error {
 }
 
 func (app *Application) setupTopicHandlers() error {
-	app.deviceHandler = handlers.NewDeviceHandler(
+	app.stationHandler = handlers.NewStationHandler(
 		app.topicManager,
-		app.deviceService,
-		logger.GetLogger("device-handler"),
+		app.stationService,
+		logger.GetLogger("station-handler"),
 	)
 
-	app.rangingHandler = handlers.NewRangingHandler(
-		app.topicManager,
-		app.rangingService,
-		logger.GetLogger("ranging-handler"),
-	)
-
-	deviceTopic := app.topicManager.GetDeviceRawTopic()
-	if err := app.mqttClient.Subscribe(deviceTopic, app.deviceHandler.HandleMessage); err != nil {
+	deviceTopic := app.topicManager.GetStationTopic()
+	if err := app.mqttClient.Subscribe(deviceTopic, app.stationHandler.HandleMessage); err != nil {
 		return fmt.Errorf("error subscribing to Device Topic: %w", err)
-	}
-
-	rangingTopic := app.topicManager.GetUwbRangingTopic()
-	if err := app.mqttClient.Subscribe(rangingTopic, app.rangingHandler.HandleMessage); err != nil {
-		return fmt.Errorf("error subscribing to Ranging Topic: %w", err)
 	}
 
 	return nil
@@ -156,7 +143,7 @@ func (app *Application) setupTableListeners() error {
 		logger.GetLogger("device-listener"),
 		app.mqttClient,
 		app.topicManager,
-		app.deviceService,
+		app.stationService,
 	)
 	if err := app.listenerManager.RegisterListener(deviceListener); err != nil {
 		return fmt.Errorf("failed to register device listener: %w", err)
@@ -175,7 +162,7 @@ func (app *Application) setupTableListeners() error {
 func (app *Application) initializeRepositories() error {
 	db := app.postgresDB.GetDB()
 
-	app.deviceRepository = repositories.NewDeviceRepository(db)
+	app.deviceRepository = repositories.NewStationRepository(db)
 	app.clusterRepository = repositories.NewClusterRepository(db)
 
 	log.Info().
@@ -186,22 +173,12 @@ func (app *Application) initializeRepositories() error {
 
 func (app *Application) initializeServices() error {
 
-	measurementWriter := influx.NewRangingWriter(
-		app.influxDB.GetWriteAPI(),
-		logger.GetLogger("ranging-writer"),
-	)
-
-	app.deviceService = services.NewDeviceService(
+	app.stationService = services.NewDeviceService(
 		app.deviceRepository,
+		app.clusterRepository,
 		app.mqttClient,
 		app.topicManager,
 		logger.GetLogger("device-service"),
-	)
-
-	app.rangingService = services.NewRangingService(
-		app.deviceRepository,
-		measurementWriter,
-		logger.GetLogger("ranging-service"),
 	)
 
 	log.Info().
@@ -213,9 +190,9 @@ func (app *Application) initializeServices() error {
 func (app *Application) initializeMQTT() error {
 	var err error
 
-	app.topicManager = &mqtt.TopicManager{BaseTopic: app.config.MQTT.BaseTopic}
+	app.topicManager = &mq.TopicManager{BaseTopic: app.config.MQTT.BaseTopic}
 
-	app.mqttClient, err = mqtt.NewClient(&app.config.MQTT, logger.GetLogger("mqtt-client"))
+	app.mqttClient, err = mq.NewClient(&app.config.MQTT, logger.GetLogger("mq-client"))
 	if err != nil {
 		return fmt.Errorf("could not create MQTT client: %w", err)
 	}

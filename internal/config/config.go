@@ -10,7 +10,7 @@ import (
 )
 
 type Config struct {
-	MQTT     MQTTConfig     `json:"mqtt"`
+	MQTT     MQTTConfig     `json:"mq"`
 	Postgres PostgresConfig `json:"postgres"`
 	InfluxDB InfluxConfig   `json:"influxdb"`
 	Logger   LoggerConfig   `json:"logger"`
