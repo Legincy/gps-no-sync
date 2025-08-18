@@ -140,7 +140,7 @@ func (app *Application) setupTableListeners() error {
 	)
 
 	deviceListener := listeners.NewDeviceTableListener(
-		logger.GetLogger("device-listener"),
+		logger.GetLogger("station-listener"),
 		app.mqttClient,
 		app.topicManager,
 		app.stationService,
@@ -178,7 +178,7 @@ func (app *Application) initializeServices() error {
 		app.clusterRepository,
 		app.mqttClient,
 		app.topicManager,
-		logger.GetLogger("device-service"),
+		logger.GetLogger("station-service"),
 	)
 
 	log.Info().

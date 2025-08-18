@@ -74,7 +74,7 @@ func (h *StationHandler) HandleMessage(client mqtt.Client, msg mqtt.Message) {
 			Interface("data", stationMessage).
 			Msg("Could not transform to model")
 	}
-	station.TopicId = topicId
+	station.Topic = topicId
 
 	if err := h.stationService.ProcessStation(ctx, &station); err != nil {
 		h.logger.Error().Err(err).

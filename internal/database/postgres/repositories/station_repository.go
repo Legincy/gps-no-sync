@@ -23,12 +23,7 @@ func (r *StationRepository) CreateOrUpdate(ctx context.Context, device *models.S
 		result := tx.Where("mac_address = ?", device.MacAddress).First(&existingStation)
 
 		if result.Error == nil {
-			return tx.Model(&existingStation).Updates(map[string]interface{}{
-				"name":       device.Name,
-				"topic_id":   device.TopicId,
-				"config":     device.Config,
-				"cluster_id": device.ClusterId,
-			}).Error
+			return tx.Model(&existingStation).Updates(device).Error
 
 		} else if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			fmt.Printf("Creating device: %s\n", device.MacAddress)

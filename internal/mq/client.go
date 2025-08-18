@@ -11,6 +11,27 @@ import (
 	"time"
 )
 
+type Message struct {
+	Data   interface{} `json:"data"`
+	Source string      `json:"source"`
+}
+
+type MessageOptions struct {
+	Qos      byte          `json:"qos"`
+	Retained bool          `json:"retained"`
+	Timeout  time.Duration `json:"timeout"`
+	Source   string        `json:"source"`
+}
+
+func DefaultMessageOptions() *MessageOptions {
+	return &MessageOptions{
+		Qos:      0,
+		Retained: false,
+		Timeout:  5 * time.Second,
+		Source:   "SYNC",
+	}
+}
+
 type Client struct {
 	client    mqtt.Client
 	config    *config.MQTTConfig
@@ -91,12 +112,32 @@ func (c *Client) Subscribe(topic string, handler mqtt.MessageHandler) error {
 	return nil
 }
 
+func (c *Client) PublishWithOptions(topic string, payload []byte, options *MessageOptions) error {
+	if !c.IsConnected() {
+		return fmt.Errorf("MQTT client is not connected")
+	}
+
+	token := c.client.Publish(topic, options.Qos, options.Retained, payload)
+	token.WaitTimeout(options.Timeout)
+
+	if token.Error() != nil {
+		return fmt.Errorf("failed to publish to topic %s: %w", topic, token.Error())
+	}
+
+	c.logger.Debug().
+		Str("topic", topic).
+		Int("payload_size", len(payload)).
+		Msg("successfully published message with options")
+
+	return nil
+}
+
 func (c *Client) Publish(topic string, payload []byte) error {
 	if !c.IsConnected() {
 		return fmt.Errorf("MQTT client is not connected")
 	}
 
-	token := c.client.Publish(topic, 0, false, payload)
+	token := c.client.Publish(topic, 0, true, payload)
 	token.Wait()
 
 	if token.Error() != nil {
@@ -112,12 +153,24 @@ func (c *Client) Publish(topic string, payload []byte) error {
 }
 
 func (c *Client) PublishJSON(topic string, data interface{}) error {
-	payload, err := json.Marshal(data)
+	msgOptions := &MessageOptions{
+		Qos:      0,
+		Retained: true,
+		Timeout:  5 * time.Second,
+		Source:   "SYNC",
+	}
+
+	message := Message{
+		Data:   data,
+		Source: msgOptions.Source,
+	}
+
+	payload, err := json.Marshal(message)
 	if err != nil {
 		return fmt.Errorf("failed to marshal JSON: %w", err)
 	}
 
-	return c.Publish(topic, payload)
+	return c.PublishWithOptions(topic, payload, msgOptions)
 }
 
 func (c *Client) IsConnected() bool {

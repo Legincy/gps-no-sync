@@ -2,8 +2,10 @@ package listeners
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/rs/zerolog"
+	"gps-no-sync/internal/models"
 	"gps-no-sync/internal/mq"
 	"gps-no-sync/internal/services"
 )
@@ -72,6 +74,28 @@ func (d *StationTableListener) handleStationUpdate(ctx context.Context, event *T
 		Interface("old_data", event.OldData).
 		Interface("new_data", event.NewData).
 		Msg("Station updated")
+
+	newData, err := json.Marshal(event.NewData)
+	if err != nil {
+		d.logger.Error().Err(err).Msg("Failed to marshal new data")
+
+		return err
+	}
+
+	var station models.Station
+	if err := json.Unmarshal(newData, &station); err != nil {
+		d.logger.Error().Err(err).
+			Msg("Could not parse station data")
+		return err
+	}
+
+	err = d.stationService.SyncToMqtt(&station)
+	if err != nil {
+		d.logger.Error().Err(err).
+			Str("mac_address", station.MacAddress).
+			Msg("Failed to sync station to MQTT after update")
+		return err
+	}
 
 	topic := d.topicManager.BaseTopic + "/events/stations/updated"
 	if err := d.mqttClient.PublishJSON(topic, map[string]interface{}{

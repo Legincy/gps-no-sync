@@ -12,7 +12,7 @@ type StationMessage struct {
 }
 
 type StationDto struct {
-	TopicId    string        `json:"topic_id"`
+	Topic      string        `json:"topic"`
 	MacAddress string        `json:"mac_address"`
 	Name       string        `json:"name,omitempty"`
 	ClusterId  uint          `json:"cluster_id,omitempty"`
@@ -47,7 +47,7 @@ func (s *StationDto) ToModel() (models.Station, error) {
 
 	station := models.Station{
 		MacAddress: s.MacAddress,
-		TopicId:    s.TopicId,
+		Topic:      s.Topic,
 		ClusterId:  &s.ClusterId,
 		Name:       s.Name,
 		Config:     stationConfig,

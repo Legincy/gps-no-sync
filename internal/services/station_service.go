@@ -35,6 +35,8 @@ func (s *StationService) ProcessStation(ctx context.Context, station *models.Sta
 			Msg("Invalid station data received")
 	}
 
+	fmt.Printf("%+v\n", *station.ClusterId)
+
 	dbCluster, err := s.clusterRepository.FindById(ctx, *station.ClusterId)
 	if err != nil {
 		s.logger.Error().Err(err).
@@ -48,6 +50,7 @@ func (s *StationService) ProcessStation(ctx context.Context, station *models.Sta
 		station.Cluster = dbCluster
 	}
 
+	fmt.Printf("Processing station: %+v\n", station)
 	if err := s.stationRepository.CreateOrUpdate(ctx, station); err != nil {
 		return fmt.Errorf("error saving device to database: %w", err)
 	}
@@ -63,18 +66,18 @@ func (s *StationService) validate(station *models.Station) error {
 	if station.MacAddress == "" {
 		return fmt.Errorf("mac_address is required")
 	}
-	if station.TopicId == "" {
+	if station.Topic == "" {
 		return fmt.Errorf("topic_id is required")
 	}
 	return nil
 }
 
-func (s *StationService) SyncToMqtt(device *models.Station) error {
+func (s *StationService) SyncToMqtt(station *models.Station) error {
 	topic := s.topicManager.GetStationTopic()
-	address := strings.ReplaceAll(device.MacAddress, ":", "")
-	topic = strings.Replace(topic, "+", strings.ToLower(address), 1)
+	topic = strings.Replace(topic, "+", strings.ToLower(station.Topic), 1)
+	stationDto := station.ToMqDto()
 
-	if err := s.client.PublishJSON(topic, device); err != nil {
+	if err := s.client.PublishJSON(topic, stationDto); err != nil {
 		return err
 	}
 

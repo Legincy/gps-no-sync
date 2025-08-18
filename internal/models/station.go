@@ -48,9 +48,27 @@ func (dc *StationConfig) Scan(value interface{}) error {
 type Station struct {
 	gorm.Model
 	MacAddress string        `gorm:"uniqueIndex;not null" json:"mac_address"`
-	TopicId    string        `grom:"not null" json:"topic_id"`
+	Topic      string        `grom:"not null" json:"topic"`
 	Name       string        `gorm:"not null" json:"name"`
 	Config     StationConfig `gorm:"type:jsonb" json:"config"`
 	ClusterId  *uint         `json:"cluster_id,omitempty"`
 	Cluster    *Cluster      `gorm:"foreignKey:ClusterId" json:"cluster,omitempty"`
+}
+
+type StationMqDto struct {
+	MacAddress string        `json:"mac_address"`
+	Topic      string        `json:"topic"`
+	Name       string        `json:"name"`
+	ClusterId  *uint         `json:"cluster_id"`
+	Config     StationConfig `json:"config"`
+}
+
+func (s *Station) ToMqDto() *StationMqDto {
+	return &StationMqDto{
+		MacAddress: s.MacAddress,
+		Topic:      s.Topic,
+		Name:       s.Name,
+		Config:     s.Config,
+		ClusterId:  s.ClusterId,
+	}
 }
