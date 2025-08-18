@@ -18,7 +18,7 @@ type StationService struct {
 	logger            zerolog.Logger
 }
 
-func NewDeviceService(stationRepository *repositories.StationRepository, clusterRepository *repositories.ClusterRepository, client *mq.Client, topicManager *mq.TopicManager, logger zerolog.Logger) *StationService {
+func NewStationService(stationRepository *repositories.StationRepository, clusterRepository *repositories.ClusterRepository, client *mq.Client, topicManager *mq.TopicManager, logger zerolog.Logger) *StationService {
 	return &StationService{
 		stationRepository: stationRepository,
 		clusterRepository: clusterRepository,

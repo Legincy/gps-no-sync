@@ -18,7 +18,7 @@ type StationTableListener struct {
 	stationService *services.StationService
 }
 
-func NewDeviceTableListener(
+func NewStationTableListener(
 	logger zerolog.Logger,
 	mqttClient *mq.Client,
 	topicManager *mq.TopicManager,
@@ -35,31 +35,31 @@ func NewDeviceTableListener(
 
 func (d *StationTableListener) HandleChange(ctx context.Context, event *TableChangeEvent) error {
 	d.logger.Info().
-		Str("operation", event.Operation).
+		Str("operation", string(event.Operation)).
 		Str("table", event.Table).
 		Time("timestamp", event.Timestamp).
-		Msg("Device table change detected")
+		Msg("Station table change detected")
 
 	switch event.Operation {
 	case "INSERT":
-		return d.handleStationInsert(ctx, event)
+		return d.handleInsert(ctx, event)
 	case "UPDATE":
-		return d.handleStationUpdate(ctx, event)
+		return d.handleUpdate(ctx, event)
 	case "DELETE":
-		return d.handleStationDelete(ctx, event)
+		return d.handleDelete(ctx, event)
 	default:
 		return fmt.Errorf("unknown operation: %s", event.Operation)
 	}
 }
 
-func (d *StationTableListener) handleStationInsert(ctx context.Context, event *TableChangeEvent) error {
+func (d *StationTableListener) handleInsert(ctx context.Context, event *TableChangeEvent) error {
 	d.logger.Info().
-		Interface("device_data", event.NewData).
-		Msg("New device created")
+		Interface("station_data", event.NewData).
+		Msg("New Station created")
 
 	topic := d.topicManager.BaseTopic + "/events/stations/created"
 	if err := d.mqttClient.PublishJSON(topic, map[string]interface{}{
-		"event":     "device_created",
+		"event":     "station_created",
 		"station":   event.NewData,
 		"timestamp": event.Timestamp,
 	}); err != nil {
@@ -69,7 +69,7 @@ func (d *StationTableListener) handleStationInsert(ctx context.Context, event *T
 	return nil
 }
 
-func (d *StationTableListener) handleStationUpdate(ctx context.Context, event *TableChangeEvent) error {
+func (d *StationTableListener) handleUpdate(ctx context.Context, event *TableChangeEvent) error {
 	d.logger.Info().
 		Interface("old_data", event.OldData).
 		Interface("new_data", event.NewData).
@@ -99,7 +99,7 @@ func (d *StationTableListener) handleStationUpdate(ctx context.Context, event *T
 
 	topic := d.topicManager.BaseTopic + "/events/stations/updated"
 	if err := d.mqttClient.PublishJSON(topic, map[string]interface{}{
-		"event":     "device_updated",
+		"event":     "station_updated",
 		"old_data":  event.OldData,
 		"new_data":  event.NewData,
 		"timestamp": event.Timestamp,
@@ -110,14 +110,14 @@ func (d *StationTableListener) handleStationUpdate(ctx context.Context, event *T
 	return nil
 }
 
-func (d *StationTableListener) handleStationDelete(ctx context.Context, event *TableChangeEvent) error {
+func (d *StationTableListener) handleDelete(ctx context.Context, event *TableChangeEvent) error {
 	d.logger.Info().
 		Interface("deleted_station", event.OldData).
 		Msg("Station deleted")
 
 	topic := d.topicManager.BaseTopic + "/events/stations/deleted"
 	if err := d.mqttClient.PublishJSON(topic, map[string]interface{}{
-		"event":        "device_deleted",
+		"event":        "station_deleted",
 		"deleted_data": event.OldData,
 		"timestamp":    event.Timestamp,
 	}); err != nil {

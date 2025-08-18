@@ -26,10 +26,11 @@ type Application struct {
 	listenerManager *listeners.ListenerManager
 	influxDB        *influx.InfluxDB
 
-	deviceRepository  *repositories.StationRepository
+	stationRepository *repositories.StationRepository
 	clusterRepository *repositories.ClusterRepository
 
 	stationService *services.StationService
+	clusterService *services.ClusterService
 
 	mqttClient     *mq.Client
 	topicManager   *mq.TopicManager
@@ -124,9 +125,9 @@ func (app *Application) setupTopicHandlers() error {
 		logger.GetLogger("station-handler"),
 	)
 
-	deviceTopic := app.topicManager.GetStationTopic()
-	if err := app.mqttClient.Subscribe(deviceTopic, app.stationHandler.HandleMessage); err != nil {
-		return fmt.Errorf("error subscribing to Device Topic: %w", err)
+	stationTopic := app.topicManager.GetStationTopic()
+	if err := app.mqttClient.Subscribe(stationTopic, app.stationHandler.HandleMessage); err != nil {
+		return fmt.Errorf("error subscribing to station Topic: %w", err)
 	}
 
 	return nil
@@ -139,14 +140,24 @@ func (app *Application) setupTableListeners() error {
 		logger.GetLogger("listener-manager"),
 	)
 
-	deviceListener := listeners.NewDeviceTableListener(
+	stationListener := listeners.NewStationTableListener(
 		logger.GetLogger("station-listener"),
 		app.mqttClient,
 		app.topicManager,
 		app.stationService,
 	)
-	if err := app.listenerManager.RegisterListener(deviceListener); err != nil {
-		return fmt.Errorf("failed to register device listener: %w", err)
+	if err := app.listenerManager.RegisterListener(stationListener); err != nil {
+		return fmt.Errorf("failed to register station listener: %w", err)
+	}
+
+	clusterListener := listeners.NewClusterTableListener(
+		logger.GetLogger("cluster-listener"),
+		app.mqttClient,
+		app.topicManager,
+		app.clusterService,
+	)
+	if err := app.listenerManager.RegisterListener(clusterListener); err != nil {
+		return fmt.Errorf("failed to register cluster listener: %w", err)
 	}
 
 	if err := app.listenerManager.Initialize(); err != nil {
@@ -162,7 +173,7 @@ func (app *Application) setupTableListeners() error {
 func (app *Application) initializeRepositories() error {
 	db := app.postgresDB.GetDB()
 
-	app.deviceRepository = repositories.NewStationRepository(db)
+	app.stationRepository = repositories.NewStationRepository(db)
 	app.clusterRepository = repositories.NewClusterRepository(db)
 
 	log.Info().
@@ -173,12 +184,19 @@ func (app *Application) initializeRepositories() error {
 
 func (app *Application) initializeServices() error {
 
-	app.stationService = services.NewDeviceService(
-		app.deviceRepository,
+	app.stationService = services.NewStationService(
+		app.stationRepository,
 		app.clusterRepository,
 		app.mqttClient,
 		app.topicManager,
 		logger.GetLogger("station-service"),
+	)
+
+	app.clusterService = services.NewClusterService(
+		app.clusterRepository,
+		app.mqttClient,
+		app.topicManager,
+		logger.GetLogger("cluster-service"),
 	)
 
 	log.Info().

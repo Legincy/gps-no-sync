@@ -5,8 +5,16 @@ import (
 	"time"
 )
 
+type OperationType string
+
+const (
+	InsertOperation OperationType = "INSERT"
+	UpdateOperation OperationType = "UPDATE"
+	DeleteOperation OperationType = "DELETE"
+)
+
 type TableChangeEvent struct {
-	Operation string                 `json:"operation"`
+	Operation OperationType          `json:"operation"`
 	Table     string                 `json:"table"`
 	OldData   map[string]interface{} `json:"old_data,omitempty"`
 	NewData   map[string]interface{} `json:"new_data,omitempty"`
