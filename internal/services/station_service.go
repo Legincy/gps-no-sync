@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/rs/zerolog"
 	"gps-no-sync/internal/database/postgres/repositories"
+	"gps-no-sync/internal/interfaces"
 	"gps-no-sync/internal/models"
 	"gps-no-sync/internal/mq"
 	"strings"
@@ -13,15 +14,17 @@ import (
 type StationService struct {
 	stationRepository *repositories.StationRepository
 	clusterRepository *repositories.ClusterRepository
+	clusterService    *ClusterService
 	client            *mq.Client
-	topicManager      *mq.TopicManager
+	topicManager      interfaces.ITopicManager
 	logger            zerolog.Logger
 }
 
-func NewStationService(stationRepository *repositories.StationRepository, clusterRepository *repositories.ClusterRepository, client *mq.Client, topicManager *mq.TopicManager, logger zerolog.Logger) *StationService {
+func NewStationService(stationRepository *repositories.StationRepository, clusterService *ClusterService, clusterRepository *repositories.ClusterRepository, client *mq.Client, topicManager interfaces.ITopicManager, logger zerolog.Logger) *StationService {
 	return &StationService{
 		stationRepository: stationRepository,
 		clusterRepository: clusterRepository,
+		clusterService:    clusterService,
 		client:            client,
 		topicManager:      topicManager,
 		logger:            logger,
@@ -29,28 +32,24 @@ func NewStationService(stationRepository *repositories.StationRepository, cluste
 }
 
 func (s *StationService) ProcessStation(ctx context.Context, station *models.Station) error {
-	err := s.validate(station)
-	if err != nil {
-		s.logger.Error().Err(err).
-			Msg("Invalid station data received")
-	}
+	if station.ClusterID != nil && *station.ClusterID > 0 {
+		dbCluster, err := s.clusterRepository.FindById(ctx, *station.ClusterID)
+		if err != nil {
+			s.logger.Error().Err(err).
+				Str("cluster_id", fmt.Sprintf("%d", *station.ClusterID)).
+				Msg("Failed to find cluster for station")
 
-	fmt.Printf("%+v\n", *station.ClusterId)
-
-	dbCluster, err := s.clusterRepository.FindById(ctx, *station.ClusterId)
-	if err != nil {
-		s.logger.Error().Err(err).
-			Str("cluster_id", fmt.Sprintf("%d", *station.ClusterId)).
-			Msg("Failed to find cluster for station")
-
-		station.ClusterId = nil
-		station.Cluster = nil
+			station.ClusterID = nil
+			station.Cluster = nil
+		} else {
+			station.ClusterID = &dbCluster.ID
+			station.Cluster = dbCluster
+		}
 	} else {
-		station.ClusterId = &dbCluster.ID
-		station.Cluster = dbCluster
+		station.ClusterID = nil
+		station.Cluster = nil
 	}
 
-	fmt.Printf("Processing station: %+v\n", station)
 	if err := s.stationRepository.CreateOrUpdate(ctx, station); err != nil {
 		return fmt.Errorf("error saving device to database: %w", err)
 	}
@@ -62,23 +61,37 @@ func (s *StationService) ProcessStation(ctx context.Context, station *models.Sta
 	return nil
 }
 
-func (s *StationService) validate(station *models.Station) error {
-	if station.MacAddress == "" {
-		return fmt.Errorf("mac_address is required")
+func (s *StationService) FindByMacAddress(ctx context.Context, macAddress string) (*models.Station, error) {
+	station, err := s.stationRepository.FindByMacAddress(ctx, macAddress)
+	if err != nil {
+		return nil, fmt.Errorf("error finding station by MAC address: %w", err)
 	}
-	if station.Topic == "" {
-		return fmt.Errorf("topic_id is required")
-	}
-	return nil
+	return station, nil
 }
 
-func (s *StationService) SyncToMqtt(station *models.Station) error {
-	topic := s.topicManager.GetStationTopic()
-	topic = strings.Replace(topic, "+", strings.ToLower(station.Topic), 1)
+func (s *StationService) SyncToMqtt(ctx context.Context, station *models.Station) error {
+	stationTopic := s.topicManager.GetStationTopic()
+	targetTopic := strings.Replace(stationTopic, "+", station.Topic, 1)
 	stationDto := station.ToMqDto()
 
-	if err := s.client.PublishJSON(topic, stationDto); err != nil {
-		return err
+	if !station.DeletedAt.IsZero() {
+		if err := s.client.Publish(targetTopic, nil); err != nil {
+			s.logger.Error().Err(err).
+				Str("topic", targetTopic).
+				Msg("Failed to publish station deletion to MQTT")
+		}
+	} else {
+		if err := s.client.PublishJson(targetTopic, stationDto); err != nil {
+			s.logger.Error().Err(err).
+				Str("topic", targetTopic).
+				Msg("Failed to publish station data to MQTT")
+		}
+	}
+
+	err := s.clusterService.SyncAll(ctx)
+	if err != nil {
+		s.logger.Error().Err(err).
+			Msg("Failed to sync clusters after syncing station to MQTT")
 	}
 
 	return nil

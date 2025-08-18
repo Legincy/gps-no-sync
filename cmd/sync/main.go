@@ -9,6 +9,7 @@ import (
 	"gps-no-sync/internal/database/postgres"
 	"gps-no-sync/internal/database/postgres/listeners"
 	"gps-no-sync/internal/database/postgres/repositories"
+	"gps-no-sync/internal/interfaces"
 	"gps-no-sync/internal/logger"
 	"gps-no-sync/internal/mq"
 	"gps-no-sync/internal/mq/handlers"
@@ -23,7 +24,7 @@ type Application struct {
 	config *config.Config
 
 	postgresDB      *postgres.PostgresDB
-	listenerManager *listeners.ListenerManager
+	listenerManager interfaces.IListenerManager
 	influxDB        *influx.InfluxDB
 
 	stationRepository *repositories.StationRepository
@@ -145,6 +146,7 @@ func (app *Application) setupTableListeners() error {
 		app.mqttClient,
 		app.topicManager,
 		app.stationService,
+		app.stationRepository,
 	)
 	if err := app.listenerManager.RegisterListener(stationListener); err != nil {
 		return fmt.Errorf("failed to register station listener: %w", err)
@@ -183,20 +185,20 @@ func (app *Application) initializeRepositories() error {
 }
 
 func (app *Application) initializeServices() error {
-
-	app.stationService = services.NewStationService(
-		app.stationRepository,
-		app.clusterRepository,
-		app.mqttClient,
-		app.topicManager,
-		logger.GetLogger("station-service"),
-	)
-
 	app.clusterService = services.NewClusterService(
 		app.clusterRepository,
 		app.mqttClient,
 		app.topicManager,
 		logger.GetLogger("cluster-service"),
+	)
+
+	app.stationService = services.NewStationService(
+		app.stationRepository,
+		app.clusterService,
+		app.clusterRepository,
+		app.mqttClient,
+		app.topicManager,
+		logger.GetLogger("station-service"),
 	)
 
 	log.Info().
@@ -208,7 +210,7 @@ func (app *Application) initializeServices() error {
 func (app *Application) initializeMQTT() error {
 	var err error
 
-	app.topicManager = &mq.TopicManager{BaseTopic: app.config.MQTT.BaseTopic}
+	app.topicManager = mq.NewTopicManager(app.config.MQTT.BaseTopic, logger.GetLogger("topic-manager"))
 
 	app.mqttClient, err = mq.NewClient(&app.config.MQTT, logger.GetLogger("mq-client"))
 	if err != nil {
@@ -246,7 +248,7 @@ func (app *Application) shutdown() error {
 	}
 
 	if app.mqttClient != nil {
-		app.mqttClient.Disconnect()
+		app.mqttClient.Disconnect(app.ctx)
 	}
 
 	if app.influxDB != nil {
@@ -255,7 +257,7 @@ func (app *Application) shutdown() error {
 
 	if app.postgresDB != nil {
 		if err := app.postgresDB.Close(); err != nil {
-			log.Error().Err(err).Msg("Error closing PostgreSQL connection")
+			log.Error().Err(err).Msg("Error closing PostgresQL connection")
 		}
 	}
 

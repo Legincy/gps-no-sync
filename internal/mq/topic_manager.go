@@ -2,17 +2,20 @@ package mq
 
 import (
 	"fmt"
+	"github.com/rs/zerolog"
 	"regexp"
 	"strings"
 )
 
 type TopicManager struct {
 	BaseTopic string
+	logger    zerolog.Logger
 }
 
-func NewTopicManager(baseTopic string) *TopicManager {
+func NewTopicManager(baseTopic string, logger zerolog.Logger) *TopicManager {
 	return &TopicManager{
 		BaseTopic: baseTopic,
+		logger:    logger,
 	}
 }
 
@@ -34,7 +37,7 @@ func (m *TopicManager) GetClusterTopic() string {
 	return fmt.Sprintf(ClusterTopicTemplate, m.BaseTopic)
 }
 
-func (m *TopicManager) BuildTopicRegex(template string) *regexp.Regexp {
+func (m *TopicManager) buildTopicRegex(template string) *regexp.Regexp {
 	pattern := strings.ReplaceAll(template, "%s", m.BaseTopic)
 	pattern = strings.ReplaceAll(pattern, "+", "([^/]+)")
 	pattern = "^" + pattern + "$"
@@ -42,30 +45,28 @@ func (m *TopicManager) BuildTopicRegex(template string) *regexp.Regexp {
 	return regexp.MustCompile(pattern)
 }
 
-func (m *TopicManager) ExtractStationIdFromTopic(topic, template string) (string, error) {
-	regex := m.BuildTopicRegex(template)
+func (m *TopicManager) ExtractIdFromTopic(topic, template string) (string, error) {
+	regex := m.buildTopicRegex(template)
 	matches := regex.FindStringSubmatch(topic)
 
 	if len(matches) < 2 {
-		return "", fmt.Errorf("could not extract device ID from topic: %s", topic)
+		return "", fmt.Errorf("could not extract ID from topic: %s", topic)
 	}
 
 	return matches[1], nil
 }
 
 func (m *TopicManager) ExtractStationId(topic string) (string, error) {
-	return m.ExtractStationIdFromTopic(topic, StationTopicTemplate)
+	return m.ExtractIdFromTopic(topic, StationTopicTemplate)
 }
 
-func (m *TopicManager) ExtractClusterIDFromTopic(topic string) (string, error) {
-	return m.ExtractStationIdFromTopic(topic, ClusterTopicTemplate)
+func (m *TopicManager) ExtractClusterId(topic string) (string, error) {
+	return m.ExtractIdFromTopic(topic, ClusterTopicTemplate)
 }
 
-func (m *TopicManager) FormatMacAddress(topicMac string) string {
-	if len(topicMac) == 12 {
-		return fmt.Sprintf("%s:%s:%s:%s:%s:%s",
-			topicMac[0:2], topicMac[2:4], topicMac[4:6],
-			topicMac[6:8], topicMac[8:10], topicMac[10:12])
+func (m *TopicManager) GetBaseTopic() string {
+	if strings.HasSuffix(m.BaseTopic, "/") {
+		return m.BaseTopic[:len(m.BaseTopic)-1]
 	}
-	return topicMac
+	return m.BaseTopic
 }

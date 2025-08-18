@@ -87,11 +87,20 @@ func (c *Client) Connect(ctx context.Context) error {
 	}
 }
 
-func (c *Client) Disconnect() {
-	if c.client.IsConnected() {
-		c.logger.Info().Msg("disconnecting from MQTT broker...")
-		c.client.Disconnect(250)
+func (c *Client) Disconnect(ctx context.Context) {
+	if !c.IsConnected() {
+		c.logger.Warn().Msg("MQTT client is not connected, nothing to disconnect")
+		return
+	}
+
+	c.client.Disconnect(250)
+
+	select {
+	case <-ctx.Done():
+		c.logger.Warn().Msg("MQTT client disconnect timed out")
+	default:
 		c.connected = false
+		c.logger.Info().Msg("MQTT client disconnected successfully")
 	}
 }
 
@@ -137,11 +146,11 @@ func (c *Client) Publish(topic string, payload []byte) error {
 		return fmt.Errorf("MQTT client is not connected")
 	}
 
-	token := c.client.Publish(topic, 0, true, payload)
-	token.Wait()
+	msgOptions := DefaultMessageOptions()
 
-	if token.Error() != nil {
-		return fmt.Errorf("failed to publish to topic %s: %w", topic, token.Error())
+	err := c.PublishWithOptions(topic, payload, msgOptions)
+	if err != nil {
+		return fmt.Errorf("failed to publish message to topic %s: %w", topic, err)
 	}
 
 	c.logger.Debug().
@@ -152,7 +161,7 @@ func (c *Client) Publish(topic string, payload []byte) error {
 	return nil
 }
 
-func (c *Client) PublishJSON(topic string, data interface{}) error {
+func (c *Client) PublishJson(topic string, data interface{}) error {
 	msgOptions := &MessageOptions{
 		Qos:      0,
 		Retained: true,

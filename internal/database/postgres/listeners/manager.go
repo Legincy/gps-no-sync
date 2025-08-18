@@ -8,6 +8,7 @@ import (
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
 	"gps-no-sync/internal/config"
+	"gps-no-sync/internal/interfaces"
 	"time"
 )
 
@@ -17,7 +18,7 @@ type ListenerManager struct {
 	logger    zerolog.Logger
 	ctx       context.Context
 	cancel    context.CancelFunc
-	listeners map[string][]TableListener
+	listeners map[string][]interfaces.ITableListener
 	channels  map[string]bool
 }
 
@@ -41,12 +42,12 @@ func NewListenerManager(db *gorm.DB, cfg *config.PostgresConfig, logger zerolog.
 		logger:    logger,
 		ctx:       ctx,
 		cancel:    cancel,
-		listeners: make(map[string][]TableListener),
+		listeners: make(map[string][]interfaces.ITableListener),
 		channels:  make(map[string]bool),
 	}
 }
 
-func (lm *ListenerManager) RegisterListener(listener TableListener) error {
+func (lm *ListenerManager) RegisterListener(listener interfaces.ITableListener) error {
 	tableName := listener.GetTableName()
 	channelName := listener.GetChannelName()
 
@@ -104,7 +105,7 @@ func (lm *ListenerManager) setupTriggers() error {
 			'timestamp', now()
 		);
 		
-		PERFORM pg_notify('table_changes', notification::text);
+		PERFORM pg_notify('table_events', notification::text);
 		
 		IF TG_OP = 'DELETE' THEN
 			RETURN OLD;
@@ -163,7 +164,7 @@ func (lm *ListenerManager) listenForChanges() {
 }
 
 func (lm *ListenerManager) handleNotification(payload string) {
-	var event TableChangeEvent
+	var event interfaces.TableChangeEvent
 	if err := json.Unmarshal([]byte(payload), &event); err != nil {
 		lm.logger.Error().Err(err).
 			Str("component", "listener-manager").
@@ -182,7 +183,7 @@ func (lm *ListenerManager) handleNotification(payload string) {
 	}
 
 	for _, listener := range tableListeners {
-		go func(l TableListener) {
+		go func(l interfaces.ITableListener) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 
@@ -198,9 +199,6 @@ func (lm *ListenerManager) handleNotification(payload string) {
 }
 
 func (lm *ListenerManager) Start() {
-	lm.logger.Info().
-		Str("component", "listener-manager").
-		Msg("Starting table listener manager...")
 	go lm.listenForChanges()
 }
 

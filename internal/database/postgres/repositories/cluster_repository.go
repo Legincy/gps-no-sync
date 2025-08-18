@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"errors"
+	"fmt"
 	"gorm.io/gorm"
 	"gps-no-sync/internal/models"
 )
@@ -43,9 +44,27 @@ func (r *ClusterRepository) FindByName(ctx context.Context, name string) (*model
 
 func (r *ClusterRepository) FindById(ctx context.Context, id uint) (*models.Cluster, error) {
 	var cluster models.Cluster
-	err := r.db.WithContext(ctx).Preload("Devices").First(&cluster, id).Error
+	err := r.db.WithContext(ctx).Preload("Stations").First(&cluster, id).Error
 	if err != nil {
 		return nil, err
 	}
 	return &cluster, nil
+}
+
+func (r *ClusterRepository) GetAll(ctx context.Context) ([]models.Cluster, error) {
+	var clusters []models.Cluster
+	err := r.db.WithContext(ctx).Preload("Stations").Find(&clusters).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to get all clusters: %w", err)
+	}
+	return clusters, nil
+}
+
+func (r *ClusterRepository) GetAllWhereStationDeletedAtIsNull(ctx context.Context) ([]models.Cluster, error) {
+	var clusters []models.Cluster
+	err := r.db.WithContext(ctx).Preload("Stations", "deleted_at IS NULL").Find(&clusters).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to get clusters with non-deleted stations: %w", err)
+	}
+	return clusters, nil
 }

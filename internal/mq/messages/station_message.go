@@ -11,11 +11,19 @@ type StationMessage struct {
 	Source string     `json:"source"`
 }
 
+func (sm *StationMessage) Validate() error {
+	if sm.Data.MacAddress == "" {
+		return fmt.Errorf("mac_address is required")
+	}
+
+	return nil
+}
+
 type StationDto struct {
 	Topic      string        `json:"topic"`
 	MacAddress string        `json:"mac_address"`
 	Name       string        `json:"name,omitempty"`
-	ClusterId  uint          `json:"cluster_id,omitempty"`
+	ClusterID  uint          `json:"cluster_id,omitempty"`
 	Uptime     *uint64       `json:"uptime,omitempty"`
 	Config     StationConfig `json:"config"`
 }
@@ -48,28 +56,10 @@ func (s *StationDto) ToModel() (models.Station, error) {
 	station := models.Station{
 		MacAddress: s.MacAddress,
 		Topic:      s.Topic,
-		ClusterId:  &s.ClusterId,
+		ClusterID:  &s.ClusterID,
 		Name:       s.Name,
 		Config:     stationConfig,
 	}
 
 	return station, nil
-}
-
-func (s *StationDto) Validate() error {
-	if s.MacAddress == "" {
-		return fmt.Errorf("mac_address is required")
-	}
-
-	return nil
-}
-
-func (sm *StationMessage) Validate() error {
-	/*
-		if sm.Source == "" {
-			return fmt.Errorf("source is required")
-		}
-	*/
-
-	return sm.Data.Validate()
 }

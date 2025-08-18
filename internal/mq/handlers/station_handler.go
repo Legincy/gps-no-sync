@@ -13,7 +13,7 @@ import (
 )
 
 type StationHandler struct {
-	stationService *services.StationService
+	stationService services.StationService
 	logger         zerolog.Logger
 	handlerTopic   string
 	topicManager   *mq.TopicManager
@@ -21,7 +21,7 @@ type StationHandler struct {
 
 func NewStationHandler(topicManager *mq.TopicManager, stationService *services.StationService, logger zerolog.Logger) *StationHandler {
 	return &StationHandler{
-		stationService: stationService,
+		stationService: *stationService,
 		logger:         logger,
 		topicManager:   topicManager,
 		handlerTopic:   topicManager.GetStationTopic(),
@@ -39,14 +39,7 @@ func (h *StationHandler) HandleMessage(client mqtt.Client, msg mqtt.Message) {
 		return
 	}
 
-	topicId, err := h.topicManager.ExtractStationIdFromTopic(topic, mq.StationTopicTemplate)
-	if err != nil {
-		h.logger.Error().Err(err).
-			Str("topic", topic).
-			Msg("Invalid station data received")
-	}
-
-	h.logger.Debug().
+	h.logger.Info().
 		Str("topic", topic).
 		Str("payload", string(payload)).
 		Msg("Received device update")
@@ -57,6 +50,14 @@ func (h *StationHandler) HandleMessage(client mqtt.Client, msg mqtt.Message) {
 			Str("topic", topic).
 			Str("payload", string(payload)).
 			Msg("Could not parse station data")
+		return
+	}
+
+	if err := stationMessage.Validate(); err != nil {
+		h.logger.Error().Err(err).
+			Str("topic", topic).
+			Interface("data", stationMessage).
+			Msg("Invalid station message data")
 		return
 	}
 
@@ -74,7 +75,16 @@ func (h *StationHandler) HandleMessage(client mqtt.Client, msg mqtt.Message) {
 			Interface("data", stationMessage).
 			Msg("Could not transform to model")
 	}
-	station.Topic = topicId
+
+	topicIdentifier, err := h.topicManager.ExtractStationId(topic)
+	if err != nil {
+		h.logger.Error().Err(err).
+			Str("topic", topic).
+			Msg("Could not extract station ID from topic")
+		return
+	}
+
+	station.Topic = topicIdentifier
 
 	if err := h.stationService.ProcessStation(ctx, &station); err != nil {
 		h.logger.Error().Err(err).

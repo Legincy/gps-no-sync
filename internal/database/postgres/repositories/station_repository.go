@@ -3,7 +3,6 @@ package repositories
 import (
 	"context"
 	"errors"
-	"fmt"
 	"gorm.io/gorm"
 	"gps-no-sync/internal/models"
 	"time"
@@ -23,21 +22,19 @@ func (r *StationRepository) CreateOrUpdate(ctx context.Context, device *models.S
 		result := tx.Where("mac_address = ?", device.MacAddress).First(&existingStation)
 
 		if result.Error == nil {
-			return tx.Model(&existingStation).Updates(device).Error
+
+			updateMap := map[string]interface{}{
+				"name":       device.Name,
+				"topic":      device.Topic,
+				"config":     device.Config,
+				"cluster_id": device.ClusterID,
+			}
+
+			return tx.Model(&models.Station{}).
+				Where("mac_address = ?", device.MacAddress).
+				Updates(updateMap).Error
 
 		} else if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			fmt.Printf("Creating device: %s\n", device.MacAddress)
-
-			/*
-				if device.Name == "" {
-					macSplit := strings.Split(device.MacAddress, ":")
-					if len(macSplit) >= 5 {
-						macIdentifier := strings.Join(macSplit[3:6], "")
-						device.Name = "Device_" + macIdentifier
-					}
-				}
-			*/
-
 			return tx.Create(device).Error
 
 		} else {
