@@ -1,6 +1,7 @@
 package models
 
 import (
+	"bytes"
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
@@ -49,8 +50,8 @@ func (dc *StationConfig) Scan(value interface{}) error {
 type Station struct {
 	ID         uint          `gorm:"primaryKey" json:"id"`
 	CreatedAt  time.Time     `json:"created_at"`
-	UpdatedAt  time.Time     `json:"updated_at"`
-	DeletedAt  time.Time     `gorm:"index" json:"deleted_at"`
+	UpdatedAt  *time.Time    `json:"updated_at"`
+	DeletedAt  *time.Time    `gorm:"index" json:"deleted_at"`
 	MacAddress string        `gorm:"uniqueIndex;not null" json:"mac_address"`
 	Topic      string        `json:"topic"`
 	Name       string        `json:"name"`
@@ -59,61 +60,79 @@ type Station struct {
 	Cluster    *Cluster      `gorm:"foreignKey:ClusterID"`
 }
 
-type StationMqDto struct {
+func (s *Station) IsValid() bool {
+	return s.Name != "" && s.Topic != ""
+}
+
+func (s *Station) LoadDefault() {
+	if s.Name == "" {
+		identifier := strings.ToUpper(fmt.Sprintf("%s%s%s", s.MacAddress[9:11], s.MacAddress[12:14], s.MacAddress[15:17]))
+		s.Name = fmt.Sprintf("GPS:No Station-%s", identifier)
+	}
+
+	if s.Topic == "" {
+		s.Topic = fmt.Sprintf("%s%s%s%s%s%s",
+			s.MacAddress[0:2], s.MacAddress[3:5], s.MacAddress[6:8],
+			s.MacAddress[9:11], s.MacAddress[12:14], s.MacAddress[15:17])
+	}
+
+	if s.CreatedAt.IsZero() {
+		s.CreatedAt = time.Now()
+	}
+}
+
+func (s *Station) UpdateFromDto(dto *StationDto) {
+	if dto == nil {
+		return
+	}
+
+	s.MacAddress = dto.MacAddress
+	s.Name = dto.Name
+	s.ClusterID = dto.ClusterID
+	s.Config = dto.Config
+}
+
+func (s *Station) IsEqual(other StationDto) bool {
+	stationDto := s.ToDto()
+
+	byteStation, err1 := json.Marshal(stationDto)
+	byteOther, err2 := json.Marshal(other)
+
+	if err1 != nil || err2 != nil {
+		return false
+	}
+
+	return bytes.Equal(byteStation, byteOther)
+}
+
+func (s *Station) ToDto() *StationDto {
+	return &StationDto{
+		MacAddress: s.MacAddress,
+		Name:       s.Name,
+		ClusterID:  s.ClusterID,
+		Config:     s.Config,
+	}
+}
+
+type StationDto struct {
 	MacAddress string        `json:"mac_address"`
 	Name       string        `json:"name"`
 	ClusterID  *uint         `json:"cluster_id"`
 	Config     StationConfig `json:"config"`
 }
 
-func (s *Station) ToMqDto() *StationMqDto {
-	return &StationMqDto{
+func (s *StationDto) ToStation() *Station {
+	return &Station{
 		MacAddress: s.MacAddress,
 		Name:       s.Name,
-		Config:     s.Config,
 		ClusterID:  s.ClusterID,
+		Config:     s.Config,
+		Topic:      s.GetMergedMacAddress(),
 	}
 }
 
-func (s *Station) GetMergedMacAddress() string {
+func (s *StationDto) GetMergedMacAddress() string {
 	return fmt.Sprintf("%s%s%s%s%s%s",
 		s.MacAddress[0:2], s.MacAddress[3:5], s.MacAddress[6:8],
 		s.MacAddress[9:11], s.MacAddress[12:14], s.MacAddress[15:17])
-}
-
-func (s *Station) Equals(other *Station) (bool, error) {
-	if s == nil || other == nil {
-		return false, nil
-	}
-
-	byteStation, err := json.Marshal(s)
-	if err != nil {
-		return false, fmt.Errorf("error marshalling station: %w", err)
-	}
-
-	byteOther, err := json.Marshal(other)
-	if err != nil {
-		return false, fmt.Errorf("error marshalling other station: %w", err)
-	}
-
-	return string(byteStation) == string(byteOther), nil
-}
-
-func (s *Station) Standardize() (*Station, error) {
-	validatedStation := *s
-
-	if validatedStation.MacAddress == "" {
-		return nil, fmt.Errorf("mac_address is required")
-	}
-
-	if validatedStation.Topic == "" {
-		validatedStation.Topic = s.GetMergedMacAddress()
-	}
-
-	if validatedStation.Name == "" {
-		name := strings.ToUpper(s.GetMergedMacAddress())
-		validatedStation.Name = fmt.Sprintf("GPS:No Station-%s", name[len(name)-6:])
-	}
-
-	return &validatedStation, nil
 }

@@ -45,22 +45,24 @@ func (m *TopicManager) buildTopicRegex(template string) *regexp.Regexp {
 	return regexp.MustCompile(pattern)
 }
 
-func (m *TopicManager) ExtractIdFromTopic(topic, template string) (string, error) {
+func (m *TopicManager) ExtractIdFromTopic(topic, template string) string {
 	regex := m.buildTopicRegex(template)
 	matches := regex.FindStringSubmatch(topic)
 
-	if len(matches) < 2 {
-		return "", fmt.Errorf("could not extract ID from topic: %s", topic)
-	}
+	/*
+		if len(matches) < 2 {
+			return "", fmt.Errorf("could not extract ID from topic: %s", topic)
+		}
+	*/
 
-	return matches[1], nil
+	return matches[1]
 }
 
-func (m *TopicManager) ExtractStationId(topic string) (string, error) {
+func (m *TopicManager) ExtractStationId(topic string) string {
 	return m.ExtractIdFromTopic(topic, StationTopicTemplate)
 }
 
-func (m *TopicManager) ExtractClusterId(topic string) (string, error) {
+func (m *TopicManager) ExtractClusterId(topic string) string {
 	return m.ExtractIdFromTopic(topic, ClusterTopicTemplate)
 }
 

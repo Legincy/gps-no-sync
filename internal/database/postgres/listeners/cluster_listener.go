@@ -7,21 +7,23 @@ import (
 	"github.com/rs/zerolog"
 	"gps-no-sync/internal/interfaces"
 	"gps-no-sync/internal/models"
+	"gps-no-sync/internal/mq"
 	"gps-no-sync/internal/services"
+	"time"
 )
 
 type ClusterTableListener struct {
 	*BaseTableListener
 	logger         zerolog.Logger
-	mqttClient     interfaces.IMqClient
-	topicManager   interfaces.ITopicManager
+	mqttClient     *mq.Client
+	topicManager   *mq.TopicManager
 	clusterService services.ClusterService
 }
 
 func NewClusterTableListener(
 	logger zerolog.Logger,
-	mqttClient interfaces.IMqClient,
-	topicManager interfaces.ITopicManager,
+	mqttClient *mq.Client,
+	topicManager *mq.TopicManager,
 	clusterService *services.ClusterService,
 ) *ClusterTableListener {
 	return &ClusterTableListener{
@@ -68,10 +70,9 @@ func (c *ClusterTableListener) handleInsert(ctx context.Context, event *interfac
 		c.logger.Error().Err(err).Msg("Failed to marshal cluster data")
 	}
 
-	err = c.clusterService.SyncToMqtt(ctx, cluster)
+	err = c.clusterService.ProcessDbCreate(ctx, cluster)
 	if err != nil {
-		c.logger.Error().Err(err).
-			Msg("Failed to sync cluster to MQTT after creation")
+		c.logger.Error().Err(err).Msg("Failed to process cluster creation")
 	}
 
 	baseTopic := c.topicManager.GetBaseTopic()
@@ -103,10 +104,9 @@ func (c *ClusterTableListener) handleUpdate(ctx context.Context, event *interfac
 		c.logger.Error().Err(err).Msg("Failed to marshal cluster data")
 	}
 
-	err = c.clusterService.SyncToMqtt(ctx, cluster)
+	err = c.clusterService.ProcessDbUpdate(ctx, cluster)
 	if err != nil {
-		c.logger.Error().Err(err).
-			Msg("Failed to sync cluster to MQTT after creation")
+		c.logger.Error().Err(err).Msg("Failed to process cluster update")
 	}
 
 	baseTopic := c.topicManager.GetBaseTopic()
@@ -138,12 +138,13 @@ func (c *ClusterTableListener) handleDelete(ctx context.Context, event *interfac
 	if err != nil {
 		c.logger.Error().Err(err).Msg("Failed to marshal cluster data")
 	}
-	cluster.DeletedAt = event.Timestamp
+	now := time.Now()
+	cluster.DeletedAt = &now
 
-	err = c.clusterService.RemoveFromMqtt(ctx, cluster)
+	err = c.clusterService.ProcessDbDelete(ctx, cluster)
 	if err != nil {
-		c.logger.Error().Err(err).
-			Msg("Failed to sync cluster to MQTT after creation")
+		c.logger.Error().Err(err).Msg("Failed to process cluster deletion")
+		return err
 	}
 
 	baseTopic := c.topicManager.GetBaseTopic()

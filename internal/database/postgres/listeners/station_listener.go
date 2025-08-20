@@ -59,10 +59,6 @@ func (d *StationTableListener) HandleChange(ctx context.Context, event *interfac
 }
 
 func (d *StationTableListener) handleInsert(ctx context.Context, event *interfaces.TableChangeEvent) error {
-	d.logger.Info().
-		Interface("station_data", event.NewData).
-		Msg("New Station created")
-
 	newData, _, err := event.GetData()
 	if err != nil {
 		d.logger.Error().Err(err).Msg("Failed to get data from event")
@@ -74,29 +70,10 @@ func (d *StationTableListener) handleInsert(ctx context.Context, event *interfac
 		d.logger.Error().Err(err).Msg("Failed to marshal station data")
 	}
 
-	normalizedStation, err := station.Standardize()
-	if err != nil {
-		d.logger.Error().Err(err).Msg("Failed to normalize station data")
-	}
-
-	isEqual, err := station.Equals(normalizedStation)
-	if err != nil {
-		d.logger.Error().Err(err).Msg("Failed to compare station data")
-	}
-
-	if !isEqual {
-		err := d.stationRepository.CreateOrUpdate(ctx, normalizedStation)
-		if err != nil {
-			return err
-		}
-
-		return nil
-	}
-
-	err = d.stationService.SyncToMqtt(ctx, normalizedStation)
+	err = d.stationService.ProcessDbCreate(ctx, station)
 	if err != nil {
 		d.logger.Error().Err(err).
-			Msg("Failed to sync station to MQTT after creation")
+			Msg("Failed to process station to MQTT after creation")
 	}
 
 	baseTopic := d.topicManager.GetBaseTopic()
@@ -113,11 +90,6 @@ func (d *StationTableListener) handleInsert(ctx context.Context, event *interfac
 }
 
 func (d *StationTableListener) handleUpdate(ctx context.Context, event *interfaces.TableChangeEvent) error {
-	d.logger.Info().
-		Interface("old_data", event.OldData).
-		Interface("new_data", event.NewData).
-		Msg("Station updated")
-
 	newData, _, err := event.GetData()
 	if err != nil {
 		d.logger.Error().Err(err).Msg("Failed to get data from event")
@@ -129,10 +101,10 @@ func (d *StationTableListener) handleUpdate(ctx context.Context, event *interfac
 		d.logger.Error().Err(err).Msg("Failed to marshal station data")
 	}
 
-	err = d.stationService.SyncToMqtt(ctx, station)
+	err = d.stationService.ProcessDbUpdate(ctx, station)
 	if err != nil {
 		d.logger.Error().Err(err).
-			Msg("Failed to sync station to MQTT after update")
+			Msg("Failed to process station to MQTT after update")
 	}
 
 	baseTopic := d.topicManager.GetBaseTopic()
@@ -150,10 +122,6 @@ func (d *StationTableListener) handleUpdate(ctx context.Context, event *interfac
 }
 
 func (d *StationTableListener) handleDelete(ctx context.Context, event *interfaces.TableChangeEvent) error {
-	d.logger.Info().
-		Interface("deleted_station", event.OldData).
-		Msg("Station deleted")
-
 	_, oldData, err := event.GetData()
 	if err != nil {
 		d.logger.Error().Err(err).Msg("Failed to get data from event")
@@ -164,12 +132,13 @@ func (d *StationTableListener) handleDelete(ctx context.Context, event *interfac
 	if err != nil {
 		d.logger.Error().Err(err).Msg("Failed to marshal station data")
 	}
-	station.DeletedAt = time.Now()
+	now := time.Now()
+	station.DeletedAt = &now
 
-	err = d.stationService.SyncToMqtt(ctx, station)
+	err = d.stationService.ProcessDbDelete(ctx, station)
 	if err != nil {
 		d.logger.Error().Err(err).
-			Msg("Failed to sync station to MQTT after creation")
+			Msg("Failed to process station to MQTT after creation")
 	}
 
 	baseTopic := d.topicManager.GetBaseTopic()

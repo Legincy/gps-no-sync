@@ -4,7 +4,6 @@ import (
 	"context"
 	"github.com/rs/zerolog"
 	"gps-no-sync/internal/database/postgres/repositories"
-	"gps-no-sync/internal/interfaces"
 	"gps-no-sync/internal/models"
 	"gps-no-sync/internal/mq"
 	"strconv"
@@ -14,11 +13,11 @@ import (
 type ClusterService struct {
 	clusterRepository *repositories.ClusterRepository
 	client            *mq.Client
-	topicManager      interfaces.ITopicManager
+	topicManager      *mq.TopicManager
 	logger            zerolog.Logger
 }
 
-func NewClusterService(clusterRepository *repositories.ClusterRepository, client *mq.Client, topicManager interfaces.ITopicManager, logger zerolog.Logger) *ClusterService {
+func NewClusterService(clusterRepository *repositories.ClusterRepository, client *mq.Client, topicManager *mq.TopicManager, logger zerolog.Logger) *ClusterService {
 	return &ClusterService{
 		clusterRepository: clusterRepository,
 		client:            client,
@@ -30,28 +29,28 @@ func NewClusterService(clusterRepository *repositories.ClusterRepository, client
 func (c *ClusterService) SyncToMqtt(ctx context.Context, cluster *models.Cluster) error {
 	clusterTopic := c.topicManager.GetClusterTopic()
 	targetTopic := strings.Replace(clusterTopic, "+", strconv.Itoa(int(cluster.ID)), 1)
-	clusterDto := cluster.ToMqDto()
 
-	if err := c.client.PublishJson(targetTopic, clusterDto); err != nil {
-		return err
-	}
+	if cluster.DeletedAt != nil {
+		if err := c.client.Publish(targetTopic, nil); err != nil {
+			c.logger.Error().Err(err).
+				Str("topic", targetTopic).
+				Msg("Failed to publish cluster deletion to MQTT")
+		}
+	} else {
+		clusterDto := cluster.ToDto()
 
-	return nil
-}
-
-func (c *ClusterService) RemoveFromMqtt(ctx context.Context, cluster *models.Cluster) error {
-	clusterTopic := c.topicManager.GetClusterTopic()
-	targetTopic := strings.Replace(clusterTopic, "+", strconv.Itoa(int(cluster.ID)), 1)
-
-	if err := c.client.Publish(targetTopic, nil); err != nil {
-		return err
+		if err := c.client.PublishJson(targetTopic, clusterDto); err != nil {
+			c.logger.Error().Err(err).
+				Str("topic", targetTopic).
+				Msg("Failed to publish cluster data to MQTT")
+		}
 	}
 
 	return nil
 }
 
 func (c *ClusterService) SyncAll(ctx context.Context) error {
-	cluster, err := c.clusterRepository.GetAllWhereStationDeletedAtIsNull(ctx)
+	cluster, err := c.clusterRepository.FindAllWhereStationDeletedAtIsNull(ctx)
 	if err != nil {
 		c.logger.Error().Err(err).Msg("Failed to fetch clusters from repository")
 	}
@@ -64,9 +63,97 @@ func (c *ClusterService) SyncAll(ctx context.Context) error {
 			return err
 		}
 
-		c.logger.Info().
+		c.logger.Debug().
 			Int("cluster_id", int(cl.ID)).
 			Msg("Cluster synced to MQTT successfully")
+	}
+
+	return nil
+}
+
+func (c *ClusterService) ProcessMessage(ctx context.Context, clusterMessage *mq.ClusterMessage) {
+	if clusterMessage.Source == "SYNC" {
+		return
+	}
+
+	clusterDto := clusterMessage.Data
+
+	dbCluster, _ := c.clusterRepository.FindByName(ctx, clusterDto.Name)
+	if dbCluster != nil {
+		err := c.SyncToMqtt(ctx, dbCluster)
+		if err != nil {
+			c.logger.Error().Err(err).
+				Str("cluster_name", clusterDto.Name).
+				Msg("Failed to sync existing cluster to MQTT")
+			return
+		}
+	} else {
+		clusterTopic := c.topicManager.GetClusterTopic()
+		targetTopic := strings.Replace(clusterTopic, "+", clusterMessage.Topic, 1)
+
+		if err := c.client.Publish(targetTopic, nil); err != nil {
+			c.logger.Error().Err(err).
+				Str("topic", targetTopic).
+				Msg("Failed to publish")
+		}
+	}
+}
+
+func (c *ClusterService) ProcessDbCreate(ctx context.Context, cluster *models.Cluster) error {
+	if cluster == nil {
+		return nil
+	}
+
+	c.logger.Debug().
+		Int("cluster_id", int(cluster.ID)).
+		Msg("Processing cluster creation to MQTT")
+
+	if err := c.SyncToMqtt(ctx, cluster); err != nil {
+		c.logger.Error().Err(err).
+			Int("cluster_id", int(cluster.ID)).
+			Msg("Failed to process cluster creation to MQTT")
+		return err
+	}
+
+	return nil
+}
+
+func (c *ClusterService) ProcessDbUpdate(ctx context.Context, cluster *models.Cluster) error {
+	if cluster == nil {
+		return nil
+	}
+
+	c.logger.Debug().
+		Int("cluster_id", int(cluster.ID)).
+		Msg("Processing cluster update to MQTT")
+
+	if err := c.SyncToMqtt(ctx, cluster); err != nil {
+		c.logger.Error().Err(err).
+			Int("cluster_id", int(cluster.ID)).
+			Msg("Failed to process cluster update to MQTT")
+		return err
+	}
+
+	return nil
+}
+
+func (c *ClusterService) ProcessDbDelete(ctx context.Context, cluster *models.Cluster) error {
+	if cluster == nil {
+		return nil
+	}
+
+	c.logger.Debug().
+		Int("cluster_id", int(cluster.ID)).
+		Msg("Processing cluster deletion to MQTT")
+
+	clusterTopic := c.topicManager.GetClusterTopic()
+	targetTopic := strings.Replace(clusterTopic, "+", strconv.Itoa(int(cluster.ID)), 1)
+
+	if err := c.client.Publish(targetTopic, nil); err != nil {
+		c.logger.Error().Err(err).
+			Str("topic", targetTopic).
+			Msg("Failed to publish cluster deletion to MQTT")
+		return err
 	}
 
 	return nil

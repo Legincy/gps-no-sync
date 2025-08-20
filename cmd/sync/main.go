@@ -36,6 +36,7 @@ type Application struct {
 	mqttClient     *mq.Client
 	topicManager   *mq.TopicManager
 	stationHandler *handlers.StationHandler
+	clusterHandler *handlers.ClusterHandler
 
 	shutdownChan chan os.Signal
 	ctx          context.Context
@@ -47,6 +48,14 @@ func main() {
 
 	if err := app.initialize(); err != nil {
 		log.Fatal().Err(err).Msg("Failed to initialize application")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err := app.clusterService.SyncAll(ctx)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to sync all clusters to MQTT")
 	}
 
 	if err := app.run(); err != nil {
@@ -121,14 +130,25 @@ func (app *Application) initializeDatabases() error {
 
 func (app *Application) setupTopicHandlers() error {
 	app.stationHandler = handlers.NewStationHandler(
-		app.topicManager,
 		app.stationService,
 		logger.GetLogger("station-handler"),
+		app.topicManager,
+	)
+
+	app.clusterHandler = handlers.NewClusterHandler(
+		app.clusterService,
+		logger.GetLogger("cluster-handler"),
+		app.topicManager,
 	)
 
 	stationTopic := app.topicManager.GetStationTopic()
 	if err := app.mqttClient.Subscribe(stationTopic, app.stationHandler.HandleMessage); err != nil {
 		return fmt.Errorf("error subscribing to station Topic: %w", err)
+	}
+
+	clusterTopic := app.topicManager.GetClusterTopic()
+	if err := app.mqttClient.Subscribe(clusterTopic, app.clusterHandler.HandleMessage); err != nil {
+		return fmt.Errorf("error subscribing to cluster Topic: %w", err)
 	}
 
 	return nil

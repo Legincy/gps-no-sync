@@ -1,31 +1,90 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/rs/zerolog"
 	"gps-no-sync/internal/mq"
-	"gps-no-sync/internal/mq/messages"
 	"gps-no-sync/internal/services"
 	"time"
 )
 
+var (
+	ErrEmptyMessage       = errors.New("empty message received")
+	ErrSyncMessageIgnored = errors.New("sync message ignored")
+	ErrInvalidMessage     = errors.New("invalid message format")
+	ErrValidationFailed   = errors.New("validation failed")
+	ErrStationNotFound    = errors.New("station not found")
+	ErrMessageIsNil       = errors.New("message is nil")
+)
+
 type StationHandler struct {
-	stationService services.StationService
+	stationService *services.StationService
 	logger         zerolog.Logger
 	handlerTopic   string
 	topicManager   *mq.TopicManager
 }
 
-func NewStationHandler(topicManager *mq.TopicManager, stationService *services.StationService, logger zerolog.Logger) *StationHandler {
+func NewStationHandler(
+	stationService *services.StationService,
+	logger zerolog.Logger,
+	topicManager *mq.TopicManager,
+) *StationHandler {
 	return &StationHandler{
-		stationService: *stationService,
+		stationService: stationService,
 		logger:         logger,
-		topicManager:   topicManager,
 		handlerTopic:   topicManager.GetStationTopic(),
+		topicManager:   topicManager,
 	}
+}
+
+func (h *StationHandler) TransformMessage(ctx context.Context, msg mqtt.Message) (*mq.StationMessage, error) {
+	if msg == nil {
+		return nil, fmt.Errorf("received nil message: %w", ErrMessageIsNil)
+	}
+
+	payload := string(msg.Payload())
+
+	if len(payload) == 0 {
+		return nil, ErrEmptyMessage
+	}
+
+	var stationMessage mq.StationMessage
+	if err := json.Unmarshal(msg.Payload(), &stationMessage); err != nil {
+		//TODO: Sync just the station that failed validation (same for clusters)
+		err := h.stationService.SyncAll(ctx)
+		if err != nil {
+			h.logger.Error().Err(err).
+				Str("topic", msg.Topic()).
+				Msg("Failed to sync all stations after invalid message")
+			return nil, fmt.Errorf("failed to sync stations: %w", err)
+		}
+
+		return nil, fmt.Errorf("could not parse station data: %w", ErrInvalidMessage)
+	}
+
+	byteStationMessage, err := json.Marshal(stationMessage)
+	if err != nil {
+		h.logger.Error().Err(err).
+			Str("topic", msg.Topic()).
+			Msg("Failed to marshal station message")
+		return nil, fmt.Errorf("failed to marshal station message: %w", err)
+	}
+
+	if !bytes.Equal(msg.Payload(), byteStationMessage) {
+		err := h.stationService.SyncAll(ctx)
+		if err != nil {
+			h.logger.Error().Err(err).
+				Str("topic", msg.Topic()).
+				Msg("Failed to sync all stations after invalid message")
+		}
+	}
+
+	return &stationMessage, nil
 }
 
 func (h *StationHandler) HandleMessage(client mqtt.Client, msg mqtt.Message) {
@@ -33,70 +92,19 @@ func (h *StationHandler) HandleMessage(client mqtt.Client, msg mqtt.Message) {
 	defer cancel()
 
 	topic := msg.Topic()
-	payload := msg.Payload()
 
-	if len(payload) == 0 {
-		return
-	}
-
-	h.logger.Info().
-		Str("topic", topic).
-		Str("payload", string(payload)).
-		Msg("Received device update")
-
-	var stationMessage messages.StationMessage
-	if err := json.Unmarshal(payload, &stationMessage); err != nil {
-		h.logger.Error().Err(err).
-			Str("topic", topic).
-			Str("payload", string(payload)).
-			Msg("Could not parse station data")
-		return
-	}
-
-	if err := stationMessage.Validate(); err != nil {
-		h.logger.Error().Err(err).
-			Str("topic", topic).
-			Interface("data", stationMessage).
-			Msg("Invalid station message data")
-		return
-	}
-
-	if stationMessage.Source == "SYNC" {
-		h.logger.Debug().
-			Str("source", stationMessage.Source).
-			Msg("Ignoring station message")
-		return
-	}
-
-	station, err := stationMessage.Data.ToModel()
+	stationMessage, err := h.TransformMessage(ctx, msg)
 	if err != nil {
-		h.logger.Error().Err(err).
-			Str("topic", topic).
-			Interface("data", stationMessage).
-			Msg("Could not transform to model")
-	}
+		if errors.Is(err, ErrEmptyMessage) {
+			return
+		}
 
-	topicIdentifier, err := h.topicManager.ExtractStationId(topic)
-	if err != nil {
 		h.logger.Error().Err(err).
+			Str("message", string(msg.Payload())).
 			Str("topic", topic).
-			Msg("Could not extract station ID from topic")
+			Msg("Failed to transform message")
 		return
 	}
 
-	station.Topic = topicIdentifier
-
-	if err := h.stationService.ProcessStation(ctx, &station); err != nil {
-		h.logger.Error().Err(err).
-			Str("mac_address", station.MacAddress).
-			Msg("Error processing station data")
-		return
-	}
-}
-
-func (h *StationHandler) validateStationDto(dto *messages.StationMessage) error {
-	if dto.Data.MacAddress == "" {
-		return fmt.Errorf("mac_address is not set")
-	}
-	return nil
+	h.stationService.ProcessMessage(ctx, stationMessage)
 }

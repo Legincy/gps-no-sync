@@ -26,7 +26,7 @@ type MessageOptions struct {
 func DefaultMessageOptions() *MessageOptions {
 	return &MessageOptions{
 		Qos:      0,
-		Retained: false,
+		Retained: true,
 		Timeout:  5 * time.Second,
 		Source:   "SYNC",
 	}
