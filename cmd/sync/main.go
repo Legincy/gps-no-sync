@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/rs/zerolog/log"
 	"gps-no-sync/internal/config"
+	"gps-no-sync/internal/database/influxdb"
 	"gps-no-sync/internal/database/postgres"
 	"gps-no-sync/internal/database/postgres/listeners"
 	"gps-no-sync/internal/database/postgres/repositories"
@@ -23,18 +24,21 @@ type Application struct {
 	config *config.Config
 
 	postgresDB      *postgres.PostgresDB
+	influxDB        *influxdb.InfluxDB
 	listenerManager interfaces.IListenerManager
 
 	stationRepository *repositories.StationRepository
 	clusterRepository *repositories.ClusterRepository
 
-	stationService *services.StationService
-	clusterService *services.ClusterService
+	stationService     *services.StationService
+	clusterService     *services.ClusterService
+	measurementService *services.MeasurementService
 
-	mqttClient     *mq.Client
-	topicManager   *mq.TopicManager
-	stationHandler *handlers.StationHandler
-	clusterHandler *handlers.ClusterHandler
+	mqttClient         *mq.Client
+	topicManager       *mq.TopicManager
+	stationHandler     *handlers.StationHandler
+	clusterHandler     *handlers.ClusterHandler
+	measurementHandler *handlers.MeasurementHandler
 
 	shutdownChan chan os.Signal
 	ctx          context.Context
@@ -119,6 +123,11 @@ func (app *Application) initializeDatabases() error {
 		return fmt.Errorf("could not connection to PostgreSQL: %w", err)
 	}
 
+	app.influxDB, err = influxdb.NewConnection(&app.config.InfluxDB, logger.GetLogger("influxdb"))
+	if err != nil {
+		return fmt.Errorf("could not connect to InfluxDB: %w", err)
+	}
+
 	log.Info().
 		Str("component", "main").
 		Str("host", app.config.Postgres.Host).
@@ -139,6 +148,12 @@ func (app *Application) setupTopicHandlers() error {
 		app.topicManager,
 	)
 
+	app.measurementHandler = handlers.NewMeasurementHandler(
+		app.measurementService,
+		logger.GetLogger("measurement-handler"),
+		app.topicManager,
+	)
+
 	stationTopic := app.topicManager.GetStationTopic()
 	if err := app.mqttClient.Subscribe(stationTopic, app.stationHandler.HandleMessage); err != nil {
 		return fmt.Errorf("error subscribing to station Topic: %w", err)
@@ -147,6 +162,11 @@ func (app *Application) setupTopicHandlers() error {
 	clusterTopic := app.topicManager.GetClusterTopic()
 	if err := app.mqttClient.Subscribe(clusterTopic, app.clusterHandler.HandleMessage); err != nil {
 		return fmt.Errorf("error subscribing to cluster Topic: %w", err)
+	}
+
+	measurementTopic := app.topicManager.GetMeasurementTopic()
+	if err := app.mqttClient.Subscribe(measurementTopic, app.measurementHandler.HandleMessage); err != nil {
+		return fmt.Errorf("error subscribing to measurement Topic: %w", err)
 	}
 
 	return nil
@@ -217,6 +237,12 @@ func (app *Application) initializeServices() error {
 		app.mqttClient,
 		app.topicManager,
 		logger.GetLogger("station-service"),
+	)
+
+	app.measurementService = services.NewMeasurementService(
+		app.influxDB,
+		app.topicManager,
+		logger.GetLogger("measurement-service"),
 	)
 
 	log.Info().

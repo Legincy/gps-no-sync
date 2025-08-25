@@ -23,3 +23,9 @@ type ClusterMessage struct {
 	Source string            `json:"source"`
 	Topic  string            `json:"topic"`
 }
+
+type MeasurementMessage struct {
+	Data   models.Measurement `json:"data"`
+	Source string             `json:"source"`
+	Topic  string             `json:"topic"`
+}
