@@ -8,6 +8,7 @@ type Cluster struct {
 	UpdatedAt   *time.Time `json:"updated_at"`
 	DeletedAt   *time.Time `gorm:"index" json:"deleted_at"`
 	Name        string     `gorm:"uniqueIndex;not null" json:"name"`
+	Topic       string     `json:"topic"`
 	Description string     `gorm:"type:text" json:"description"`
 	Stations    []Station  `gorm:"foreignKey:ClusterID" json:"stations,omitempty"`
 }

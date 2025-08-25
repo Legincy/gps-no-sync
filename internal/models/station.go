@@ -49,7 +49,7 @@ func (dc *StationConfig) Scan(value interface{}) error {
 
 type Station struct {
 	ID         uint          `gorm:"primaryKey" json:"id"`
-	CreatedAt  time.Time     `json:"created_at"`
+	CreatedAt  *time.Time    `json:"created_at"`
 	UpdatedAt  *time.Time    `json:"updated_at"`
 	DeletedAt  *time.Time    `gorm:"index" json:"deleted_at"`
 	MacAddress string        `gorm:"uniqueIndex;not null" json:"mac_address"`
@@ -65,6 +65,13 @@ func (s *Station) IsValid() bool {
 }
 
 func (s *Station) LoadDefault() {
+	s.MacAddress = strings.ToLower(s.MacAddress)
+	if len(s.MacAddress) == 12 && !strings.Contains(s.MacAddress, ":") {
+		s.MacAddress = fmt.Sprintf("%s:%s:%s:%s:%s:%s",
+			s.MacAddress[0:2], s.MacAddress[2:4], s.MacAddress[4:6],
+			s.MacAddress[6:8], s.MacAddress[8:10], s.MacAddress[10:12])
+	}
+
 	if s.Name == "" {
 		identifier := strings.ToUpper(fmt.Sprintf("%s%s%s", s.MacAddress[9:11], s.MacAddress[12:14], s.MacAddress[15:17]))
 		s.Name = fmt.Sprintf("GPS:No Station-%s", identifier)
@@ -76,9 +83,12 @@ func (s *Station) LoadDefault() {
 			s.MacAddress[9:11], s.MacAddress[12:14], s.MacAddress[15:17])
 	}
 
-	if s.CreatedAt.IsZero() {
-		s.CreatedAt = time.Now()
+	if s.CreatedAt == nil {
+		now := time.Now()
+		s.CreatedAt = &now
 	}
+
+	fmt.Println(s)
 }
 
 func (s *Station) UpdateFromDto(dto *StationDto) {
@@ -127,7 +137,6 @@ func (s *StationDto) ToStation() *Station {
 		Name:       s.Name,
 		ClusterID:  s.ClusterID,
 		Config:     s.Config,
-		Topic:      s.GetMergedMacAddress(),
 	}
 }
 

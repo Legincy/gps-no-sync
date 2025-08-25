@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"github.com/rs/zerolog"
 	"gps-no-sync/internal/database/postgres/repositories"
 	"gps-no-sync/internal/models"
@@ -78,7 +79,9 @@ func (c *ClusterService) ProcessMessage(ctx context.Context, clusterMessage *mq.
 
 	clusterDto := clusterMessage.Data
 
-	dbCluster, _ := c.clusterRepository.FindByName(ctx, clusterDto.Name)
+	fmt.Println(clusterMessage)
+
+	dbCluster, _ := c.clusterRepository.FindByTopic(ctx, clusterMessage.Topic)
 	if dbCluster != nil {
 		err := c.SyncToMqtt(ctx, dbCluster)
 		if err != nil {

@@ -7,6 +7,7 @@ import (
 type StationMessage struct {
 	Data   models.StationDto `json:"data"`
 	Source string            `json:"source"`
+	Topic  string            `json:"topic"`
 }
 
 type StationConfig struct {

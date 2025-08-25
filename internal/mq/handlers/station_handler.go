@@ -66,6 +66,7 @@ func (h *StationHandler) TransformMessage(ctx context.Context, msg mqtt.Message)
 
 		return nil, fmt.Errorf("could not parse station data: %w", ErrInvalidMessage)
 	}
+	stationMessage.Topic = msg.Topic()
 
 	byteStationMessage, err := json.Marshal(stationMessage)
 	if err != nil {

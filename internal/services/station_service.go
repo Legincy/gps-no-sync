@@ -69,6 +69,11 @@ func (s *StationService) ProcessMessage(ctx context.Context, stationMessage *mq.
 	dbStation, _ := s.stationRepository.FindByMacAddress(ctx, stationDto.MacAddress)
 	if dbStation == nil {
 		station := stationDto.ToStation()
+		if !station.IsValid() {
+			station.LoadDefault()
+		}
+
+		station.Topic = s.topicManager.ExtractStationId(stationMessage.Topic)
 
 		err := s.stationRepository.Create(ctx, station)
 		if err != nil {
@@ -128,6 +133,7 @@ func (s *StationService) ProcessDbDelete(ctx context.Context, station *models.St
 
 func (s *StationService) ProcessDbCreate(ctx context.Context, station *models.Station) error {
 	if !station.IsValid() {
+		fmt.Println(station)
 		station.LoadDefault()
 
 		err := s.stationRepository.Update(ctx, station)
@@ -138,6 +144,7 @@ func (s *StationService) ProcessDbCreate(ctx context.Context, station *models.St
 			return fmt.Errorf("error updating station in database after standardization: %w", err)
 		}
 
+		fmt.Println("LOL")
 		return nil
 	}
 

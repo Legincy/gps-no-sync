@@ -47,12 +47,13 @@ func (r *StationRepository) Create(ctx context.Context, station *models.Station)
 
 func (r *StationRepository) Update(ctx context.Context, station *models.Station) error {
 	return r.db.WithContext(ctx).Model(&models.Station{}).
-		Where("mac_address = ?", station.MacAddress).
+		Where("LOWER(mac_address) = ?", station.MacAddress).
 		Updates(map[string]interface{}{
-			"name":       station.Name,
-			"topic":      station.Topic,
-			"config":     station.Config,
-			"cluster_id": station.ClusterID,
+			"name":        station.Name,
+			"topic":       station.Topic,
+			"config":      station.Config,
+			"cluster_id":  station.ClusterID,
+			"mac_address": station.MacAddress,
 		}).Error
 }
 

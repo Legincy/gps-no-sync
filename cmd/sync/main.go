@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/rs/zerolog/log"
 	"gps-no-sync/internal/config"
-	"gps-no-sync/internal/database/influx"
 	"gps-no-sync/internal/database/postgres"
 	"gps-no-sync/internal/database/postgres/listeners"
 	"gps-no-sync/internal/database/postgres/repositories"
@@ -25,7 +24,6 @@ type Application struct {
 
 	postgresDB      *postgres.PostgresDB
 	listenerManager interfaces.IListenerManager
-	influxDB        *influx.InfluxDB
 
 	stationRepository *repositories.StationRepository
 	clusterRepository *repositories.ClusterRepository
@@ -53,7 +51,12 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	err := app.clusterService.SyncAll(ctx)
+	err := app.stationService.SyncAll(ctx)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to sync all stations to MQTT")
+	}
+
+	err = app.clusterService.SyncAll(ctx)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to sync all clusters to MQTT")
 	}
@@ -114,11 +117,6 @@ func (app *Application) initializeDatabases() error {
 	app.postgresDB, err = postgres.NewConnection(app.config.Postgres)
 	if err != nil {
 		return fmt.Errorf("could not connection to PostgreSQL: %w", err)
-	}
-
-	app.influxDB, err = influx.NewConnection(&app.config.InfluxDB)
-	if err != nil {
-		return fmt.Errorf("could not connect to InfluxDB: %w", err)
 	}
 
 	log.Info().
@@ -269,10 +267,6 @@ func (app *Application) shutdown() error {
 
 	if app.mqttClient != nil {
 		app.mqttClient.Disconnect(app.ctx)
-	}
-
-	if app.influxDB != nil {
-		app.influxDB.Close()
 	}
 
 	if app.postgresDB != nil {

@@ -42,6 +42,15 @@ func (r *ClusterRepository) FindById(ctx context.Context, id uint) (*models.Clus
 	return &cluster, nil
 }
 
+func (r *ClusterRepository) FindByTopic(ctx context.Context, topic string) (*models.Cluster, error) {
+	var cluster models.Cluster
+	err := r.db.WithContext(ctx).Preload("Stations").Where("topic = ?", topic).First(&cluster).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to find cluster by topic %s: %w", topic, err)
+	}
+	return &cluster, nil
+}
+
 func (r *ClusterRepository) FindAll(ctx context.Context) ([]models.Cluster, error) {
 	var clusters []models.Cluster
 	err := r.db.WithContext(ctx).Preload("Stations").Find(&clusters).Error
