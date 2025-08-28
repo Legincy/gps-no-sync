@@ -55,7 +55,6 @@ func (h *MeasurementHandler) TransformMessage(ctx context.Context, msg mqtt.Mess
 
 	measurementMessage.Topic = topic
 
-	// Extract station ID from topic if not provided in the message
 	if measurementMessage.Data.StationID == "" {
 		stationID := h.topicManager.ExtractStationId(topic)
 		if stationID == "" {

@@ -2,6 +2,7 @@ package influxdb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
 	"github.com/influxdata/influxdb-client-go/v2/api"
@@ -81,7 +82,7 @@ func (i *InfluxDB) WritePoint(point *write.Point) {
 	i.writeAPI.WritePoint(point)
 }
 
-func (i *InfluxDB) WriteMeasurement(measurement string, tags map[string]string, fields map[string]interface{}, timestamp time.Time) {
+func (i *InfluxDB) WriteMeasurement(measurement string, tags map[string]string, fields map[string]interface{}, timestamp time.Time) error {
 	i.logger.Info().
 		Str("measurement", measurement).
 		Interface("tags", tags).
@@ -91,8 +92,9 @@ func (i *InfluxDB) WriteMeasurement(measurement string, tags map[string]string, 
 
 	// Validate fields - InfluxDB needs at least one field
 	if len(fields) == 0 {
-		i.logger.Error().Msg("No fields provided for measurement - InfluxDB requires at least one field")
-		return
+		err := errors.New("no fields provided for measurement - InfluxDB requires at least one field")
+		i.logger.Error().Err(err).Msg("Validation failed")
+		return err
 	}
 
 	// Check for nil values in fields
@@ -106,18 +108,57 @@ func (i *InfluxDB) WriteMeasurement(measurement string, tags map[string]string, 
 	}
 
 	if len(cleanFields) == 0 {
-		i.logger.Error().Msg("All field values are nil - cannot write measurement")
-		return
+		err := errors.New("all field values are nil - cannot write measurement")
+		i.logger.Error().Err(err).Msg("Validation failed")
+		return err
 	}
 
-	point := influxdb2.NewPoint(measurement, tags, fields, timestamp)
+	// ✅ FIX: Verwende cleanFields statt fields
+	point := influxdb2.NewPoint(measurement, tags, cleanFields, timestamp)
 	i.WritePoint(point)
 
+	// Synchron flushen und auf Fehler prüfen
 	i.writeAPI.Flush()
+
+	// Kurz warten damit asynchrone Fehler verarbeitet werden können
+	time.Sleep(100 * time.Millisecond)
 
 	i.logger.Debug().
 		Str("measurement", measurement).
 		Msg("Measurement written and flushed")
+
+	return nil
+}
+
+func (i *InfluxDB) WriteMeasurementSync(measurement string, tags map[string]string, fields map[string]interface{}, timestamp time.Time) error {
+	// Validation (same as above)
+	cleanFields := make(map[string]interface{})
+	for k, v := range fields {
+		if v != nil {
+			cleanFields[k] = v
+		}
+	}
+
+	if len(cleanFields) == 0 {
+		return errors.New("no valid fields to write")
+	}
+
+	// Verwende WriteAPIBlocking für synchrone Writes
+	writeAPI := i.client.WriteAPIBlocking(i.config.Organization, i.config.Bucket)
+
+	point := influxdb2.NewPoint(measurement, tags, cleanFields, timestamp)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err := writeAPI.WritePoint(ctx, point)
+	if err != nil {
+		i.logger.Error().Err(err).Msg("Failed to write point synchronously")
+		return err
+	}
+
+	i.logger.Debug().Str("measurement", measurement).Msg("Measurement written synchronously")
+	return nil
 }
 
 func (i *InfluxDB) Flush() {

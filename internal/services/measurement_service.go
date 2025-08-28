@@ -69,20 +69,26 @@ func (s *MeasurementService) ProcessMessage(ctx context.Context, measurementMess
 func (s *MeasurementService) StoreMeasurement(ctx context.Context, measurement *models.Measurement) error {
 	tags := measurement.GetTags()
 	fields := measurement.GetFields()
-
 	measurementName := string(measurement.Type)
 
-	fmt.Println(measurement)
-	fmt.Println(s)
+	s.logger.Info().
+		Str("measurement_name", measurementName).
+		Interface("tags", tags).
+		Interface("fields", fields).
+		Time("timestamp", measurement.Timestamp).
+		Msg("About to store measurement in InfluxDB")
 
-	s.influxDB.WriteMeasurement(
-		measurementName,
-		tags,
-		fields,
-		measurement.Timestamp,
-	)
+	err := s.influxDB.WriteMeasurementSync(measurementName, tags, fields, measurement.Timestamp)
+	if err != nil {
+		s.logger.Error().Err(err).
+			Str("measurement_name", measurementName).
+			Msg("Failed to write measurement to InfluxDB")
+		return fmt.Errorf("failed to write measurement to InfluxDB: %w", err)
+	}
 
-	fmt.Println(measurement)
+	s.logger.Info().
+		Str("measurement_name", measurementName).
+		Msg("Successfully stored measurement in InfluxDB")
 
 	return nil
 }
