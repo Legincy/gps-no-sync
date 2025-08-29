@@ -48,7 +48,6 @@ func (s *MeasurementService) ProcessMessage(ctx context.Context, measurementMess
 		return fmt.Errorf("invalid measurement: %w", err)
 	}
 
-	// Store measurement in InfluxDB
 	if err := s.StoreMeasurement(ctx, &measurement); err != nil {
 		s.logger.Error().Err(err).
 			Str("station_id", measurement.StationID).
@@ -76,19 +75,19 @@ func (s *MeasurementService) StoreMeasurement(ctx context.Context, measurement *
 		Interface("tags", tags).
 		Interface("fields", fields).
 		Time("timestamp", measurement.Timestamp).
-		Msg("About to store measurement in InfluxDB")
+		Msg("About to store measurement in InfluxConfig")
 
-	err := s.influxDB.WriteMeasurementSync(measurementName, tags, fields, measurement.Timestamp)
+	err := s.influxDB.WriteMeasurementSync("measurement", measurementName, tags, fields, measurement.Timestamp)
 	if err != nil {
 		s.logger.Error().Err(err).
 			Str("measurement_name", measurementName).
-			Msg("Failed to write measurement to InfluxDB")
-		return fmt.Errorf("failed to write measurement to InfluxDB: %w", err)
+			Msg("Failed to write measurement to InfluxConfig")
+		return fmt.Errorf("failed to write measurement to InfluxConfig: %w", err)
 	}
 
 	s.logger.Info().
 		Str("measurement_name", measurementName).
-		Msg("Successfully stored measurement in InfluxDB")
+		Msg("Successfully stored measurement in InfluxConfig")
 
 	return nil
 }

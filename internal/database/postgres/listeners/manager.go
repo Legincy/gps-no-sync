@@ -7,7 +7,6 @@ import (
 	"github.com/lib/pq"
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
-	"gps-no-sync/internal/config"
 	"gps-no-sync/internal/interfaces"
 	"time"
 )
@@ -22,7 +21,7 @@ type ListenerManager struct {
 	channels  map[string]bool
 }
 
-func NewListenerManager(db *gorm.DB, cfg *config.PostgresConfig, logger zerolog.Logger) *ListenerManager {
+func NewListenerManager(db *gorm.DB, dsn string, logger zerolog.Logger) *ListenerManager {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	reportProblem := func(ev pq.ListenerEventType, err error) {
@@ -34,7 +33,7 @@ func NewListenerManager(db *gorm.DB, cfg *config.PostgresConfig, logger zerolog.
 		}
 	}
 
-	listener := pq.NewListener(cfg.Dsn, 10*time.Second, time.Minute, reportProblem)
+	listener := pq.NewListener(dsn, 10*time.Second, time.Minute, reportProblem)
 
 	return &ListenerManager{
 		db:        db,

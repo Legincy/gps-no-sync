@@ -3,15 +3,14 @@ package logger
 import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"gps-no-sync/internal/config"
 	"os"
 	"strings"
 	"time"
 )
 
-func NewLogger(cfg config.LoggerConfig) zerolog.Logger {
+func NewLogger(logLevel, format string) zerolog.Logger {
 	level := zerolog.InfoLevel
-	switch strings.ToLower(cfg.Level) {
+	switch strings.ToLower(logLevel) {
 	case "debug":
 		level = zerolog.DebugLevel
 	case "info":
@@ -25,7 +24,7 @@ func NewLogger(cfg config.LoggerConfig) zerolog.Logger {
 	}
 
 	var output zerolog.ConsoleWriter
-	if cfg.Format == "console" {
+	if format == "console" {
 		output = zerolog.ConsoleWriter{
 			Out:        os.Stdout,
 			TimeFormat: time.RFC3339,

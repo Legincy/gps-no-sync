@@ -8,58 +8,59 @@ import (
 	"github.com/influxdata/influxdb-client-go/v2/api"
 	"github.com/influxdata/influxdb-client-go/v2/api/write"
 	"github.com/rs/zerolog"
-	"gps-no-sync/internal/config"
+	"gps-no-sync/internal/config/components"
 	"time"
 )
 
 type InfluxDB struct {
-	client     influxdb2.Client
-	writeAPI   api.WriteAPI
-	queryAPI   api.QueryAPI
-	config     *config.InfluxConfig
-	logger     zerolog.Logger
-	ctx        context.Context
-	cancelFunc context.CancelFunc
+	client       influxdb2.Client
+	writeAPI     api.WriteAPI
+	queryAPI     api.QueryAPI
+	config       components.InfluxConfig
+	logger       zerolog.Logger
+	ctx          context.Context
+	cancelFunc   context.CancelFunc
+	organization string
 }
 
-func NewConnection(cfg *config.InfluxConfig, logger zerolog.Logger) (*InfluxDB, error) {
+func NewConnection(url, token, org, bucket string, logger zerolog.Logger) (*InfluxDB, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	client := influxdb2.NewClient(cfg.URL, cfg.Token)
+	client := influxdb2.NewClient(url, token)
 
-	writeAPI := client.WriteAPI(cfg.Organization, cfg.Bucket)
-	queryAPI := client.QueryAPI(cfg.Organization)
+	writeAPI := client.WriteAPI(org, bucket)
+	queryAPI := client.QueryAPI(org)
 
 	health, err := client.Health(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to InfluxDB: %w", err)
+		return nil, fmt.Errorf("failed to connect to InfluxConfig: %w", err)
 	}
 
 	if health.Status != "pass" {
-		return nil, fmt.Errorf("InfluxDB health check failed: %s", health.Status)
+		return nil, fmt.Errorf("InfluxConfig health check failed: %s", health.Status)
 	}
 
 	ctx, cancelFunc := context.WithCancel(context.Background())
 
 	influxDB := &InfluxDB{
-		client:     client,
-		writeAPI:   writeAPI,
-		queryAPI:   queryAPI,
-		config:     cfg,
-		logger:     logger,
-		ctx:        ctx,
-		cancelFunc: cancelFunc,
+		client:       client,
+		writeAPI:     writeAPI,
+		queryAPI:     queryAPI,
+		logger:       logger,
+		ctx:          ctx,
+		cancelFunc:   cancelFunc,
+		organization: org,
 	}
 
 	go influxDB.handleWriteErrors()
 
 	logger.Info().
 		Str("component", "influxdb").
-		Str("url", cfg.URL).
-		Str("organization", cfg.Organization).
-		Str("bucket", cfg.Bucket).
-		Msg("Successfully connected to InfluxDB")
+		Str("url", url).
+		Str("organization", org).
+		Str("bucket", bucket).
+		Msg("Successfully connected to InfluxConfig")
 
 	return influxDB, nil
 }
@@ -88,16 +89,14 @@ func (i *InfluxDB) WriteMeasurement(measurement string, tags map[string]string, 
 		Interface("tags", tags).
 		Interface("fields", fields).
 		Time("timestamp", timestamp).
-		Msg("Preparing to write measurement to InfluxDB")
+		Msg("Preparing to write measurement to InfluxConfig")
 
-	// Validate fields - InfluxDB needs at least one field
 	if len(fields) == 0 {
-		err := errors.New("no fields provided for measurement - InfluxDB requires at least one field")
+		err := errors.New("no fields provided for measurement - InfluxConfig requires at least one field")
 		i.logger.Error().Err(err).Msg("Validation failed")
 		return err
 	}
 
-	// Check for nil values in fields
 	cleanFields := make(map[string]interface{})
 	for k, v := range fields {
 		if v != nil {
@@ -113,14 +112,11 @@ func (i *InfluxDB) WriteMeasurement(measurement string, tags map[string]string, 
 		return err
 	}
 
-	// ✅ FIX: Verwende cleanFields statt fields
 	point := influxdb2.NewPoint(measurement, tags, cleanFields, timestamp)
 	i.WritePoint(point)
 
-	// Synchron flushen und auf Fehler prüfen
 	i.writeAPI.Flush()
 
-	// Kurz warten damit asynchrone Fehler verarbeitet werden können
 	time.Sleep(100 * time.Millisecond)
 
 	i.logger.Debug().
@@ -130,8 +126,7 @@ func (i *InfluxDB) WriteMeasurement(measurement string, tags map[string]string, 
 	return nil
 }
 
-func (i *InfluxDB) WriteMeasurementSync(measurement string, tags map[string]string, fields map[string]interface{}, timestamp time.Time) error {
-	// Validation (same as above)
+func (i *InfluxDB) WriteMeasurementSync(bucket, measurement string, tags map[string]string, fields map[string]interface{}, timestamp time.Time) error {
 	cleanFields := make(map[string]interface{})
 	for k, v := range fields {
 		if v != nil {
@@ -143,8 +138,7 @@ func (i *InfluxDB) WriteMeasurementSync(measurement string, tags map[string]stri
 		return errors.New("no valid fields to write")
 	}
 
-	// Verwende WriteAPIBlocking für synchrone Writes
-	writeAPI := i.client.WriteAPIBlocking(i.config.Organization, i.config.Bucket)
+	writeAPI := i.client.WriteAPIBlocking(i.organization, bucket)
 
 	point := influxdb2.NewPoint(measurement, tags, cleanFields, timestamp)
 
@@ -176,5 +170,5 @@ func (i *InfluxDB) Close() {
 
 	i.logger.Info().
 		Str("component", "influxdb").
-		Msg("InfluxDB connection closed")
+		Msg("InfluxConfig connection closed")
 }

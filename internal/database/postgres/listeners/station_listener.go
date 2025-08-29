@@ -16,7 +16,7 @@ import (
 type StationTableListener struct {
 	*BaseTableListener
 	logger            zerolog.Logger
-	mqttClient        interfaces.IMqClient
+	mqttClient        *mq.Client
 	topicManager      *mq.TopicManager
 	stationService    *services.StationService
 	stationRepository *repositories.StationRepository
@@ -24,7 +24,7 @@ type StationTableListener struct {
 
 func NewStationTableListener(
 	logger zerolog.Logger,
-	mqttClient interfaces.IMqClient,
+	mqttClient *mq.Client,
 	topicManager *mq.TopicManager,
 	stationService *services.StationService,
 	stationRepository *repositories.StationRepository,
@@ -73,7 +73,7 @@ func (d *StationTableListener) handleInsert(ctx context.Context, event *interfac
 	err = d.stationService.ProcessDbCreate(ctx, station)
 	if err != nil {
 		d.logger.Error().Err(err).
-			Msg("Failed to process station to MQTT after creation")
+			Msg("Failed to process station to MQTTConfig after creation")
 	}
 
 	baseTopic := d.topicManager.GetBaseTopic()
@@ -104,7 +104,7 @@ func (d *StationTableListener) handleUpdate(ctx context.Context, event *interfac
 	err = d.stationService.ProcessDbUpdate(ctx, station)
 	if err != nil {
 		d.logger.Error().Err(err).
-			Msg("Failed to process station to MQTT after update")
+			Msg("Failed to process station to MQTTConfig after update")
 	}
 
 	baseTopic := d.topicManager.GetBaseTopic()
@@ -138,7 +138,7 @@ func (d *StationTableListener) handleDelete(ctx context.Context, event *interfac
 	err = d.stationService.ProcessDbDelete(ctx, station)
 	if err != nil {
 		d.logger.Error().Err(err).
-			Msg("Failed to process station to MQTT after creation")
+			Msg("Failed to process station to MQTTConfig after creation")
 	}
 
 	baseTopic := d.topicManager.GetBaseTopic()

@@ -102,7 +102,7 @@ func (s *StationService) ProcessMessage(ctx context.Context, stationMessage *mq.
 	if err != nil {
 		s.logger.Error().Err(err).
 			Str("mac_address", stationDto.MacAddress).
-			Msg("Failed to sync updated station to MQTT")
+			Msg("Failed to sync updated station to MQTTConfig")
 		return
 	}
 }
@@ -112,8 +112,8 @@ func (s *StationService) ProcessDbUpdate(ctx context.Context, station *models.St
 	if err != nil {
 		s.logger.Error().Err(err).
 			Str("mac_address", station.MacAddress).
-			Msg("Failed to sync updated station to MQTT")
-		return fmt.Errorf("error syncing updated station to MQTT: %w", err)
+			Msg("Failed to sync updated station to MQTTConfig")
+		return fmt.Errorf("error syncing updated station to MQTTConfig: %w", err)
 	}
 
 	return nil
@@ -124,8 +124,8 @@ func (s *StationService) ProcessDbDelete(ctx context.Context, station *models.St
 	if err != nil {
 		s.logger.Error().Err(err).
 			Str("mac_address", station.MacAddress).
-			Msg("Failed to sync updated station to MQTT")
-		return fmt.Errorf("error syncing updated station to MQTT: %w", err)
+			Msg("Failed to sync updated station to MQTTConfig")
+		return fmt.Errorf("error syncing updated station to MQTTConfig: %w", err)
 	}
 
 	return nil
@@ -152,8 +152,8 @@ func (s *StationService) ProcessDbCreate(ctx context.Context, station *models.St
 	if err != nil {
 		s.logger.Error().Err(err).
 			Str("mac_address", station.MacAddress).
-			Msg("Failed to sync updated station to MQTT")
-		return fmt.Errorf("error syncing updated station to MQTT: %w", err)
+			Msg("Failed to sync updated station to MQTTConfig")
+		return fmt.Errorf("error syncing updated station to MQTTConfig: %w", err)
 	}
 
 	return nil
@@ -176,7 +176,7 @@ func (s *StationService) SyncToMqtt(ctx context.Context, station *models.Station
 		if err := s.client.Publish(targetTopic, nil); err != nil {
 			s.logger.Error().Err(err).
 				Str("topic", targetTopic).
-				Msg("Failed to publish station deletion to MQTT")
+				Msg("Failed to publish station deletion to MQTTConfig")
 		}
 	} else {
 		stationDto := station.ToDto()
@@ -184,7 +184,7 @@ func (s *StationService) SyncToMqtt(ctx context.Context, station *models.Station
 		if err := s.client.PublishJson(targetTopic, stationDto); err != nil {
 			s.logger.Error().Err(err).
 				Str("topic", targetTopic).
-				Msg("Failed to publish station data to MQTT")
+				Msg("Failed to publish station data to MQTTConfig")
 		}
 	}
 
@@ -192,7 +192,7 @@ func (s *StationService) SyncToMqtt(ctx context.Context, station *models.Station
 
 	if err != nil {
 		s.logger.Error().Err(err).
-			Msg("Failed to sync clusters after syncing station to MQTT")
+			Msg("Failed to sync clusters after syncing station to MQTTConfig")
 	}
 
 	return nil
@@ -209,8 +209,8 @@ func (s *StationService) SyncAll(ctx context.Context) error {
 		if err := s.SyncToMqtt(ctx, &station); err != nil {
 			s.logger.Error().Err(err).
 				Str("mac_address", station.MacAddress).
-				Msg("Failed to sync station to MQTT")
-			return fmt.Errorf("error syncing station to MQTT: %w", err)
+				Msg("Failed to sync station to MQTTConfig")
+			return fmt.Errorf("error syncing station to MQTTConfig: %w", err)
 		}
 	}
 

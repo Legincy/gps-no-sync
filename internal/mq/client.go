@@ -6,7 +6,7 @@ import (
 	"fmt"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/rs/zerolog"
-	"gps-no-sync/internal/config"
+	"gps-no-sync/internal/config/components"
 	"math/rand"
 	"time"
 )
@@ -34,32 +34,31 @@ func DefaultMessageOptions() *MessageOptions {
 
 type Client struct {
 	client    mqtt.Client
-	config    *config.MQTTConfig
+	config    components.MQTTConfig
 	logger    zerolog.Logger
 	connected bool
 }
 
-func NewClient(cfg *config.MQTTConfig, logger zerolog.Logger) (*Client, error) {
+func NewClient(brokerUrl, username, password, clientPrefix string, keepAlive, maxReconnect time.Duration, autoReconnect, cleanSession bool, logger zerolog.Logger) (*Client, error) {
 	opts := mqtt.NewClientOptions()
 
-	brokerURL := fmt.Sprintf("tcp://%s:%d", cfg.Host, cfg.Port)
-	opts.AddBroker(brokerURL)
+	fmt.Println(brokerUrl, clientPrefix, username, password, keepAlive, maxReconnect, autoReconnect, cleanSession)
 
-	clientID := fmt.Sprintf("%s-%d", cfg.ClientID, rand.Intn(10000))
+	opts.AddBroker(brokerUrl)
+	clientID := fmt.Sprintf("%s-%d", clientPrefix, rand.Intn(10000))
 	opts.SetClientID(clientID)
 
-	if cfg.Username != "" && cfg.Password != "" {
-		opts.SetUsername(cfg.Username)
-		opts.SetPassword(cfg.Password)
+	if username != "" && password != "" {
+		opts.SetUsername(username)
+		opts.SetPassword(password)
 	}
 
-	opts.SetKeepAlive(time.Duration(cfg.KeepAlive) * time.Second)
-	opts.SetAutoReconnect(cfg.AutoReconnect)
-	opts.SetMaxReconnectInterval(cfg.MaxReconnectInterval)
-	opts.SetCleanSession(cfg.CleanSession)
+	opts.SetKeepAlive(keepAlive)
+	opts.SetAutoReconnect(autoReconnect)
+	opts.SetMaxReconnectInterval(maxReconnect)
+	opts.SetCleanSession(cleanSession)
 
 	mqttClient := &Client{
-		config:    cfg,
 		logger:    logger,
 		connected: false,
 	}
@@ -78,18 +77,18 @@ func (c *Client) Connect(ctx context.Context) error {
 	select {
 	case <-token.Done():
 		if token.Error() != nil {
-			return fmt.Errorf("error connecting to MQTT broker: %w", token.Error())
+			return fmt.Errorf("error connecting to MQTTConfig broker: %w", token.Error())
 		}
 		c.connected = true
 		return nil
 	case <-ctx.Done():
-		return fmt.Errorf("connection to MQTT broker timed out: %w", ctx.Err())
+		return fmt.Errorf("connection to MQTTConfig broker timed out: %w", ctx.Err())
 	}
 }
 
 func (c *Client) Disconnect(ctx context.Context) {
 	if !c.IsConnected() {
-		c.logger.Warn().Msg("MQTT client is not connected, nothing to disconnect")
+		c.logger.Warn().Msg("MQTTConfig client is not connected, nothing to disconnect")
 		return
 	}
 
@@ -97,19 +96,19 @@ func (c *Client) Disconnect(ctx context.Context) {
 
 	select {
 	case <-ctx.Done():
-		c.logger.Warn().Msg("MQTT client disconnect timed out")
+		c.logger.Warn().Msg("MQTTConfig client disconnect timed out")
 	default:
 		c.connected = false
-		c.logger.Info().Msg("MQTT client disconnected successfully")
+		c.logger.Info().Msg("MQTTConfig client disconnected successfully")
 	}
 }
 
-func (c *Client) Subscribe(topic string, handler mqtt.MessageHandler) error {
+func (c *Client) Subscribe(topic string, qos byte, handler mqtt.MessageHandler) error {
 	if !c.client.IsConnected() {
-		return fmt.Errorf("MQTT client is not connected, cannot subscribe to topic %s", topic)
+		return fmt.Errorf("MQTTConfig client is not connected, cannot subscribe to topic %s", topic)
 	}
 
-	token := c.client.Subscribe(topic, c.config.QoS, handler)
+	token := c.client.Subscribe(topic, qos, handler)
 	token.Wait()
 
 	if token.Error() != nil {
@@ -123,7 +122,7 @@ func (c *Client) Subscribe(topic string, handler mqtt.MessageHandler) error {
 
 func (c *Client) PublishWithOptions(topic string, payload []byte, options *MessageOptions) error {
 	if !c.IsConnected() {
-		return fmt.Errorf("MQTT client is not connected")
+		return fmt.Errorf("MQTTConfig client is not connected")
 	}
 
 	token := c.client.Publish(topic, options.Qos, options.Retained, payload)
@@ -143,7 +142,7 @@ func (c *Client) PublishWithOptions(topic string, payload []byte, options *Messa
 
 func (c *Client) Publish(topic string, payload []byte) error {
 	if !c.IsConnected() {
-		return fmt.Errorf("MQTT client is not connected")
+		return fmt.Errorf("MQTTConfig client is not connected")
 	}
 
 	msgOptions := DefaultMessageOptions()
@@ -188,8 +187,8 @@ func (c *Client) IsConnected() bool {
 
 func (c *Client) onConnect(client mqtt.Client) {
 	c.connected = true
+
 	c.logger.Info().
-		Str("broker", c.config.Host).
 		Msg("Successfully connected to broker")
 }
 

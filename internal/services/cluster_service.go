@@ -35,7 +35,7 @@ func (c *ClusterService) SyncToMqtt(ctx context.Context, cluster *models.Cluster
 		if err := c.client.Publish(targetTopic, nil); err != nil {
 			c.logger.Error().Err(err).
 				Str("topic", targetTopic).
-				Msg("Failed to publish cluster deletion to MQTT")
+				Msg("Failed to publish cluster deletion to MQTTConfig")
 		}
 	} else {
 		clusterDto := cluster.ToDto()
@@ -43,7 +43,7 @@ func (c *ClusterService) SyncToMqtt(ctx context.Context, cluster *models.Cluster
 		if err := c.client.PublishJson(targetTopic, clusterDto); err != nil {
 			c.logger.Error().Err(err).
 				Str("topic", targetTopic).
-				Msg("Failed to publish cluster data to MQTT")
+				Msg("Failed to publish cluster data to MQTTConfig")
 		}
 	}
 
@@ -60,13 +60,13 @@ func (c *ClusterService) SyncAll(ctx context.Context) error {
 		if err := c.SyncToMqtt(ctx, &cl); err != nil {
 			c.logger.Error().Err(err).
 				Int("cluster_id", int(cl.ID)).
-				Msg("Failed to sync cluster to MQTT")
+				Msg("Failed to sync cluster to MQTTConfig")
 			return err
 		}
 
 		c.logger.Debug().
 			Int("cluster_id", int(cl.ID)).
-			Msg("Cluster synced to MQTT successfully")
+			Msg("Cluster synced to MQTTConfig successfully")
 	}
 
 	return nil
@@ -87,7 +87,7 @@ func (c *ClusterService) ProcessMessage(ctx context.Context, clusterMessage *mq.
 		if err != nil {
 			c.logger.Error().Err(err).
 				Str("cluster_name", clusterDto.Name).
-				Msg("Failed to sync existing cluster to MQTT")
+				Msg("Failed to sync existing cluster to MQTTConfig")
 			return
 		}
 	} else {
@@ -109,12 +109,12 @@ func (c *ClusterService) ProcessDbCreate(ctx context.Context, cluster *models.Cl
 
 	c.logger.Debug().
 		Int("cluster_id", int(cluster.ID)).
-		Msg("Processing cluster creation to MQTT")
+		Msg("Processing cluster creation to MQTTConfig")
 
 	if err := c.SyncToMqtt(ctx, cluster); err != nil {
 		c.logger.Error().Err(err).
 			Int("cluster_id", int(cluster.ID)).
-			Msg("Failed to process cluster creation to MQTT")
+			Msg("Failed to process cluster creation to MQTTConfig")
 		return err
 	}
 
@@ -128,12 +128,12 @@ func (c *ClusterService) ProcessDbUpdate(ctx context.Context, cluster *models.Cl
 
 	c.logger.Debug().
 		Int("cluster_id", int(cluster.ID)).
-		Msg("Processing cluster update to MQTT")
+		Msg("Processing cluster update to MQTTConfig")
 
 	if err := c.SyncToMqtt(ctx, cluster); err != nil {
 		c.logger.Error().Err(err).
 			Int("cluster_id", int(cluster.ID)).
-			Msg("Failed to process cluster update to MQTT")
+			Msg("Failed to process cluster update to MQTTConfig")
 		return err
 	}
 
@@ -147,7 +147,7 @@ func (c *ClusterService) ProcessDbDelete(ctx context.Context, cluster *models.Cl
 
 	c.logger.Debug().
 		Int("cluster_id", int(cluster.ID)).
-		Msg("Processing cluster deletion to MQTT")
+		Msg("Processing cluster deletion to MQTTConfig")
 
 	clusterTopic := c.topicManager.GetClusterTopic()
 	targetTopic := strings.Replace(clusterTopic, "+", strconv.Itoa(int(cluster.ID)), 1)
@@ -155,7 +155,7 @@ func (c *ClusterService) ProcessDbDelete(ctx context.Context, cluster *models.Cl
 	if err := c.client.Publish(targetTopic, nil); err != nil {
 		c.logger.Error().Err(err).
 			Str("topic", targetTopic).
-			Msg("Failed to publish cluster deletion to MQTT")
+			Msg("Failed to publish cluster deletion to MQTTConfig")
 		return err
 	}
 

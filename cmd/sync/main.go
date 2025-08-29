@@ -20,8 +20,8 @@ import (
 	"time"
 )
 
-type Application struct {
-	config *config.Config
+type ApplicationImpl struct {
+	configWrapper config.WrapperImpl
 
 	postgresDB      *postgres.PostgresDB
 	influxDB        *influxdb.InfluxDB
@@ -46,7 +46,7 @@ type Application struct {
 }
 
 func main() {
-	app := &Application{}
+	app := &ApplicationImpl{}
 
 	if err := app.initialize(); err != nil {
 		log.Fatal().Err(err).Msg("Failed to initialize application")
@@ -57,12 +57,12 @@ func main() {
 
 	err := app.stationService.SyncAll(ctx)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to sync all stations to MQTT")
+		log.Error().Err(err).Msg("Failed to sync all stations to MQTTConfig")
 	}
 
 	err = app.clusterService.SyncAll(ctx)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to sync all clusters to MQTT")
+		log.Error().Err(err).Msg("Failed to sync all clusters to MQTTConfig")
 	}
 
 	if err := app.run(); err != nil {
@@ -70,15 +70,12 @@ func main() {
 	}
 }
 
-func (app *Application) initialize() error {
-	var err error
+func (app *ApplicationImpl) initialize() error {
+	app.configWrapper = config.NewWrapper()
 
-	app.config, err = config.Load()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %v", err)
-	}
-
-	logger.NewLogger(app.config.Logger)
+	logLevel := app.configWrapper.LoggerConfig.Level
+	logFormat := app.configWrapper.LoggerConfig.Format
+	logger.NewLogger(logLevel, logFormat)
 	log.Info().
 		Str("component", "main").
 		Str("version", "1.0.0").
@@ -115,27 +112,29 @@ func (app *Application) initialize() error {
 	return nil
 }
 
-func (app *Application) initializeDatabases() error {
+func (app *ApplicationImpl) initializeDatabases() error {
 	var err error
 
-	app.postgresDB, err = postgres.NewConnection(app.config.Postgres)
+	dsn := app.configWrapper.PostgresConfig.GetDsn()
+	fmt.Println(dsn)
+	app.postgresDB, err = postgres.NewConnection(dsn)
 	if err != nil {
 		return fmt.Errorf("could not connection to PostgreSQL: %w", err)
 	}
 
-	app.influxDB, err = influxdb.NewConnection(&app.config.InfluxDB, logger.GetLogger("influxdb"))
+	url := app.configWrapper.InfluxConfig.URL
+	token := app.configWrapper.InfluxConfig.Token
+	org := app.configWrapper.InfluxConfig.Organization
+	bucket := app.configWrapper.InfluxConfig.Bucket
+	app.influxDB, err = influxdb.NewConnection(url, token, org, bucket, logger.GetLogger("influxdb"))
 	if err != nil {
-		return fmt.Errorf("could not connect to InfluxDB: %w", err)
+		return fmt.Errorf("could not connect to InfluxConfig: %w", err)
 	}
 
-	log.Info().
-		Str("component", "main").
-		Str("host", app.config.Postgres.Host).
-		Msg("Successfully initialized databases")
 	return nil
 }
 
-func (app *Application) setupTopicHandlers() error {
+func (app *ApplicationImpl) setupTopicHandlers() error {
 	app.stationHandler = handlers.NewStationHandler(
 		app.stationService,
 		logger.GetLogger("station-handler"),
@@ -154,28 +153,31 @@ func (app *Application) setupTopicHandlers() error {
 		app.topicManager,
 	)
 
+	qos := app.configWrapper.MQTTConfig.QoS
 	stationTopic := app.topicManager.GetStationTopic()
-	if err := app.mqttClient.Subscribe(stationTopic, app.stationHandler.HandleMessage); err != nil {
+	if err := app.mqttClient.Subscribe(stationTopic, qos, app.stationHandler.HandleMessage); err != nil {
 		return fmt.Errorf("error subscribing to station Topic: %w", err)
 	}
 
 	clusterTopic := app.topicManager.GetClusterTopic()
-	if err := app.mqttClient.Subscribe(clusterTopic, app.clusterHandler.HandleMessage); err != nil {
+	if err := app.mqttClient.Subscribe(clusterTopic, qos, app.clusterHandler.HandleMessage); err != nil {
 		return fmt.Errorf("error subscribing to cluster Topic: %w", err)
 	}
 
 	measurementTopic := app.topicManager.GetMeasurementTopic()
-	if err := app.mqttClient.Subscribe(measurementTopic, app.measurementHandler.HandleMessage); err != nil {
+	if err := app.mqttClient.Subscribe(measurementTopic, qos, app.measurementHandler.HandleMessage); err != nil {
 		return fmt.Errorf("error subscribing to measurement Topic: %w", err)
 	}
 
 	return nil
 }
 
-func (app *Application) setupTableListeners() error {
+func (app *ApplicationImpl) setupTableListeners() error {
+	dsn := app.configWrapper.PostgresConfig.GetDsn()
+
 	app.listenerManager = listeners.NewListenerManager(
 		app.postgresDB.GetDB(),
-		&app.config.Postgres,
+		dsn,
 		logger.GetLogger("listener-manager"),
 	)
 
@@ -210,7 +212,7 @@ func (app *Application) setupTableListeners() error {
 	return nil
 }
 
-func (app *Application) initializeRepositories() error {
+func (app *ApplicationImpl) initializeRepositories() error {
 	db := app.postgresDB.GetDB()
 
 	app.stationRepository = repositories.NewStationRepository(db)
@@ -222,7 +224,7 @@ func (app *Application) initializeRepositories() error {
 	return nil
 }
 
-func (app *Application) initializeServices() error {
+func (app *ApplicationImpl) initializeServices() error {
 	app.clusterService = services.NewClusterService(
 		app.clusterRepository,
 		app.mqttClient,
@@ -251,12 +253,21 @@ func (app *Application) initializeServices() error {
 	return nil
 }
 
-func (app *Application) initializeMQTT() error {
+func (app *ApplicationImpl) initializeMQTT() error {
 	var err error
 
-	app.topicManager = mq.NewTopicManager(app.config.MQTT.BaseTopic, logger.GetLogger("topic-manager"))
+	baseTopic := app.configWrapper.MQTTConfig.BaseTopic
+	app.topicManager = mq.NewTopicManager(baseTopic, logger.GetLogger("topic-manager"))
 
-	app.mqttClient, err = mq.NewClient(&app.config.MQTT, logger.GetLogger("mq-client"))
+	brokerUrl := app.configWrapper.MQTTConfig.GetUrl()
+	username := app.configWrapper.MQTTConfig.Username
+	password := app.configWrapper.MQTTConfig.Password
+	clientPrefix := app.configWrapper.MQTTConfig.ClientID
+	keepAlive := app.configWrapper.MQTTConfig.KeepAlive
+	maxReconnectInterval := app.configWrapper.MQTTConfig.MaxReconnectInterval
+	autoReconnect := app.configWrapper.MQTTConfig.AutoReconnect
+	cleanSession := app.configWrapper.MQTTConfig.CleanSession
+	app.mqttClient, err = mq.NewClient(brokerUrl, username, password, clientPrefix, keepAlive, maxReconnectInterval, autoReconnect, cleanSession, logger.GetLogger("mqtt-client"))
 	if err != nil {
 		return fmt.Errorf("could not create MQTT client: %w", err)
 	}
@@ -275,7 +286,7 @@ func (app *Application) initializeMQTT() error {
 	return nil
 }
 
-func (app *Application) run() error {
+func (app *ApplicationImpl) run() error {
 	select {
 	case sig := <-app.shutdownChan:
 		log.Info().Str("signal", sig.String()).Msg("Received shutdown signal")
@@ -286,7 +297,7 @@ func (app *Application) run() error {
 	return app.shutdown()
 }
 
-func (app *Application) shutdown() error {
+func (app *ApplicationImpl) shutdown() error {
 	if app.listenerManager != nil {
 		app.listenerManager.Stop()
 	}
