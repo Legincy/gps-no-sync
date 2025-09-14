@@ -73,9 +73,7 @@ func main() {
 func (app *ApplicationImpl) initialize() error {
 	app.configWrapper = config.NewWrapper()
 
-	logLevel := app.configWrapper.LoggerConfig.Level
-	logFormat := app.configWrapper.LoggerConfig.Format
-	logger.NewLogger(logLevel, logFormat)
+	logger.NewLogger(&app.configWrapper.LoggerConfig)
 	log.Info().
 		Str("component", "main").
 		Str("version", "1.0.0").
@@ -115,18 +113,12 @@ func (app *ApplicationImpl) initialize() error {
 func (app *ApplicationImpl) initializeDatabases() error {
 	var err error
 
-	dsn := app.configWrapper.PostgresConfig.GetDsn()
-	fmt.Println(dsn)
-	app.postgresDB, err = postgres.NewConnection(dsn)
+	app.postgresDB, err = postgres.NewConnection(&app.configWrapper.PostgresConfig)
 	if err != nil {
 		return fmt.Errorf("could not connection to PostgreSQL: %w", err)
 	}
 
-	url := app.configWrapper.InfluxConfig.URL
-	token := app.configWrapper.InfluxConfig.Token
-	org := app.configWrapper.InfluxConfig.Organization
-	bucket := app.configWrapper.InfluxConfig.Bucket
-	app.influxDB, err = influxdb.NewConnection(url, token, org, bucket, logger.GetLogger("influxdb"))
+	app.influxDB, err = influxdb.NewConnection(&app.configWrapper.InfluxConfig, logger.GetLogger("influxdb"))
 	if err != nil {
 		return fmt.Errorf("could not connect to InfluxConfig: %w", err)
 	}
@@ -173,7 +165,7 @@ func (app *ApplicationImpl) setupTopicHandlers() error {
 }
 
 func (app *ApplicationImpl) setupTableListeners() error {
-	dsn := app.configWrapper.PostgresConfig.GetDsn()
+	dsn := app.configWrapper.PostgresConfig.Dsn
 
 	app.listenerManager = listeners.NewListenerManager(
 		app.postgresDB.GetDB(),
@@ -259,15 +251,7 @@ func (app *ApplicationImpl) initializeMQTT() error {
 	baseTopic := app.configWrapper.MQTTConfig.BaseTopic
 	app.topicManager = mq.NewTopicManager(baseTopic, logger.GetLogger("topic-manager"))
 
-	brokerUrl := app.configWrapper.MQTTConfig.GetUrl()
-	username := app.configWrapper.MQTTConfig.Username
-	password := app.configWrapper.MQTTConfig.Password
-	clientPrefix := app.configWrapper.MQTTConfig.ClientID
-	keepAlive := app.configWrapper.MQTTConfig.KeepAlive
-	maxReconnectInterval := app.configWrapper.MQTTConfig.MaxReconnectInterval
-	autoReconnect := app.configWrapper.MQTTConfig.AutoReconnect
-	cleanSession := app.configWrapper.MQTTConfig.CleanSession
-	app.mqttClient, err = mq.NewClient(brokerUrl, username, password, clientPrefix, keepAlive, maxReconnectInterval, autoReconnect, cleanSession, logger.GetLogger("mqtt-client"))
+	app.mqttClient, err = mq.NewClient(&app.configWrapper.MQTTConfig, logger.GetLogger("mqtt-client"))
 	if err != nil {
 		return fmt.Errorf("could not create MQTT client: %w", err)
 	}

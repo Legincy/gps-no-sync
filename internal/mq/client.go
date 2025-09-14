@@ -39,24 +39,22 @@ type Client struct {
 	connected bool
 }
 
-func NewClient(brokerUrl, username, password, clientPrefix string, keepAlive, maxReconnect time.Duration, autoReconnect, cleanSession bool, logger zerolog.Logger) (*Client, error) {
+func NewClient(cfg *components.MQTTConfigImpl, logger zerolog.Logger) (*Client, error) {
 	opts := mqtt.NewClientOptions()
 
-	fmt.Println(brokerUrl, clientPrefix, username, password, keepAlive, maxReconnect, autoReconnect, cleanSession)
-
-	opts.AddBroker(brokerUrl)
-	clientID := fmt.Sprintf("%s-%d", clientPrefix, rand.Intn(10000))
+	opts.AddBroker(cfg.Url)
+	clientID := fmt.Sprintf("%s-%d", cfg.ClientID, rand.Intn(10000))
 	opts.SetClientID(clientID)
 
-	if username != "" && password != "" {
-		opts.SetUsername(username)
-		opts.SetPassword(password)
+	if cfg.Username != "" && cfg.Password != "" {
+		opts.SetUsername(cfg.Username)
+		opts.SetPassword(cfg.Password)
 	}
 
-	opts.SetKeepAlive(keepAlive)
-	opts.SetAutoReconnect(autoReconnect)
-	opts.SetMaxReconnectInterval(maxReconnect)
-	opts.SetCleanSession(cleanSession)
+	opts.SetKeepAlive(cfg.KeepAlive)
+	opts.SetAutoReconnect(cfg.AutoReconnect)
+	opts.SetMaxReconnectInterval(cfg.MaxReconnectInterval)
+	opts.SetCleanSession(cfg.CleanSession)
 
 	mqttClient := &Client{
 		logger:    logger,

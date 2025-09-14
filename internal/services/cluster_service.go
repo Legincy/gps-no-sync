@@ -111,6 +111,21 @@ func (c *ClusterService) ProcessDbCreate(ctx context.Context, cluster *models.Cl
 		Int("cluster_id", int(cluster.ID)).
 		Msg("Processing cluster creation to MQTTConfig")
 
+	if cluster.Topic == "" {
+		c.logger.Debug().Msg("Cluster topic is empty, setting to cluster ID")
+		cluster.Topic = strconv.Itoa(int(cluster.ID))
+
+		err := c.clusterRepository.CreateOrUpdate(ctx, cluster)
+		if err != nil {
+			c.logger.Error().Err(err).
+				Int("cluster_id", int(cluster.ID)).
+				Msg("Failed to update cluster with default topic")
+			return err
+		}
+
+		return nil
+	}
+
 	if err := c.SyncToMqtt(ctx, cluster); err != nil {
 		c.logger.Error().Err(err).
 			Int("cluster_id", int(cluster.ID)).

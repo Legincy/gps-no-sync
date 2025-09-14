@@ -23,14 +23,14 @@ type InfluxDB struct {
 	organization string
 }
 
-func NewConnection(url, token, org, bucket string, logger zerolog.Logger) (*InfluxDB, error) {
+func NewConnection(cfg *components.InfluxConfigImpl, logger zerolog.Logger) (*InfluxDB, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	client := influxdb2.NewClient(url, token)
+	client := influxdb2.NewClient(cfg.URL, cfg.Token)
 
-	writeAPI := client.WriteAPI(org, bucket)
-	queryAPI := client.QueryAPI(org)
+	writeAPI := client.WriteAPI(cfg.Organization, cfg.Bucket)
+	queryAPI := client.QueryAPI(cfg.Organization)
 
 	health, err := client.Health(ctx)
 	if err != nil {
@@ -50,16 +50,16 @@ func NewConnection(url, token, org, bucket string, logger zerolog.Logger) (*Infl
 		logger:       logger,
 		ctx:          ctx,
 		cancelFunc:   cancelFunc,
-		organization: org,
+		organization: cfg.Organization,
 	}
 
 	go influxDB.handleWriteErrors()
 
 	logger.Info().
 		Str("component", "influxdb").
-		Str("url", url).
-		Str("organization", org).
-		Str("bucket", bucket).
+		Str("url", cfg.URL).
+		Str("organization", cfg.Organization).
+		Str("bucket", cfg.Bucket).
 		Msg("Successfully connected to InfluxConfig")
 
 	return influxDB, nil

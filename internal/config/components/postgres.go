@@ -9,12 +9,12 @@ import (
 
 type PostgresConfig interface {
 	interfaces.Config
-	GetDsn() string
 }
 
 type PostgresConfigImpl struct {
 	Host     string `json:"host"`
 	Port     int    `json:"port"`
+	Dsn      string `json:"dsn"`
 	User     string `json:"user"`
 	Password string `json:"password"`
 	Database string `json:"database"`
@@ -60,6 +60,8 @@ func (P *PostgresConfigImpl) SetDefaults() {
 	if P.TimeZone == "" {
 		P.TimeZone = "UTC"
 	}
+
+	P.Dsn = fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s&TimeZone=%s", P.User, P.Password, P.Host, P.Port, P.Database, P.SSLMode, P.TimeZone)
 }
 
 func (P *PostgresConfigImpl) Validate() error {
@@ -79,10 +81,6 @@ func (P *PostgresConfigImpl) Validate() error {
 		return fmt.Errorf("POSTGRES_SSL_MODE must be one of: disable, require, verify-ca, verify-full")
 	}
 	return nil
-}
-
-func (P *PostgresConfigImpl) GetDsn() string {
-	return fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s&TimeZone=%s", P.User, P.Password, P.Host, P.Port, P.Database, P.SSLMode, P.TimeZone)
 }
 
 var _ PostgresConfig = (*PostgresConfigImpl)(nil)

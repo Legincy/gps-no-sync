@@ -5,6 +5,7 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"gps-no-sync/internal/config/components"
 	"gps-no-sync/internal/models"
 	"log"
 	"os"
@@ -15,7 +16,7 @@ type PostgresDB struct {
 	db *gorm.DB
 }
 
-func NewConnection(dsn string) (*PostgresDB, error) {
+func NewConnection(cfg *components.PostgresConfigImpl) (*PostgresDB, error) {
 	newLogger := logger.New(
 		log.New(os.Stdout, "\r\n", log.LstdFlags),
 		logger.Config{
@@ -26,7 +27,7 @@ func NewConnection(dsn string) (*PostgresDB, error) {
 		},
 	)
 
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
+	db, err := gorm.Open(postgres.Open(cfg.Dsn), &gorm.Config{
 		Logger: newLogger,
 	})
 	if err != nil {

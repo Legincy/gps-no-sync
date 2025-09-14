@@ -11,12 +11,12 @@ import (
 
 type MQTTConfig interface {
 	interfaces.Config
-	GetUrl() string
 }
 
 type MQTTConfigImpl struct {
 	Host                 string        `json:"host"`
 	Port                 int           `json:"port"`
+	Url                  string        `json:"url"`
 	Username             string        `json:"username"`
 	Password             string        `json:"password"`
 	ClientID             string        `json:"client_id"`
@@ -58,6 +58,7 @@ func (M *MQTTConfigImpl) SetDefaults() {
 	if M.Port == 0 {
 		M.Port = 1883
 	}
+	M.Url = fmt.Sprintf("tcp://%s:%d", M.Host, M.Port)
 	if M.ClientID == "" {
 		M.ClientID = "gps-no-sync"
 	}
@@ -95,10 +96,6 @@ func (M *MQTTConfigImpl) Validate() error {
 	}
 
 	return nil
-}
-
-func (M *MQTTConfigImpl) GetUrl() string {
-	return fmt.Sprintf("%s:%d", M.Host, M.Port)
 }
 
 var _ MQTTConfig = (*MQTTConfigImpl)(nil)
