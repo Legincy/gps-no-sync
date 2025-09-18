@@ -23,6 +23,7 @@ type MQTTConfigImpl struct {
 	BaseTopic            string        `json:"base_topic"`
 	QoS                  byte          `json:"qos"`
 	KeepAlive            time.Duration `json:"keep_alive"`
+	ConnectTimeout       time.Duration `json:"connect_timeout"`
 	AutoReconnect        bool          `json:"auto_reconnect"`
 	MaxReconnectInterval time.Duration `json:"max_reconnect_interval"`
 	CleanSession         bool          `json:"clean_session"`
@@ -46,6 +47,7 @@ func (M *MQTTConfigImpl) Load() {
 	M.BaseTopic = shared.GetEnv("MQTT_BASE_TOPIC")
 	M.QoS = byte(shared.GetEnvAsInt("MQTT_QOS"))
 	M.KeepAlive = shared.GetEnvAsDuration("MQTT_KEEP_ALIVE")
+	M.ConnectTimeout = shared.GetEnvAsDuration("MQTT_CONNECT_TIMEOUT")
 	M.AutoReconnect = shared.GetEnvAsBool("MQTT_AUTO_RECONNECT", true)
 	M.MaxReconnectInterval = shared.GetEnvAsDuration("MQTT_MAX_RECONNECT_INTERVAL")
 	M.CleanSession = shared.GetEnvAsBool("MQTT_CLEAN_SESSION", true)
@@ -67,6 +69,9 @@ func (M *MQTTConfigImpl) SetDefaults() {
 	}
 	if M.QoS <= 0 {
 		M.QoS = 1
+	}
+	if M.ConnectTimeout <= 0 {
+		M.ConnectTimeout = 10 * time.Second
 	}
 	if M.KeepAlive == 0 {
 		M.KeepAlive = 60 * time.Second

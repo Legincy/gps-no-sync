@@ -6,28 +6,24 @@ import (
 	"github.com/rs/zerolog"
 	"gps-no-sync/internal/database/influxdb"
 	"gps-no-sync/internal/models"
-	"gps-no-sync/internal/mq"
-	"time"
 )
 
 type MeasurementService struct {
-	influxDB     *influxdb.InfluxDB
-	topicManager *mq.TopicManager
-	logger       zerolog.Logger
+	influxDB *influxdb.InfluxDB
+	logger   zerolog.Logger
 }
 
 func NewMeasurementService(
 	influxDB *influxdb.InfluxDB,
-	topicManager *mq.TopicManager,
 	logger zerolog.Logger,
 ) *MeasurementService {
 	return &MeasurementService{
-		influxDB:     influxDB,
-		topicManager: topicManager,
-		logger:       logger,
+		influxDB: influxDB,
+		logger:   logger,
 	}
 }
 
+/*
 func (s *MeasurementService) ProcessMessage(ctx context.Context, measurementMessage *mq.MeasurementMessage) error {
 	if measurementMessage.Source == "SYNC" {
 		return nil
@@ -64,6 +60,7 @@ func (s *MeasurementService) ProcessMessage(ctx context.Context, measurementMess
 
 	return nil
 }
+*/
 
 func (s *MeasurementService) StoreMeasurement(ctx context.Context, measurement *models.Measurement) error {
 	tags := measurement.GetTags()

@@ -54,7 +54,6 @@ func NewConnection(cfg *components.PostgresConfigImpl) (*PostgresDB, error) {
 
 func (p *PostgresDB) migrate() error {
 	return p.db.AutoMigrate(
-		&models.Cluster{},
 		&models.Station{},
 	)
 }

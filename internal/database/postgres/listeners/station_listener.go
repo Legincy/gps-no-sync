@@ -8,7 +8,6 @@ import (
 	"gps-no-sync/internal/database/postgres/repositories"
 	"gps-no-sync/internal/interfaces"
 	"gps-no-sync/internal/models"
-	"gps-no-sync/internal/mq"
 	"gps-no-sync/internal/services"
 	"time"
 )
@@ -16,24 +15,18 @@ import (
 type StationTableListener struct {
 	*BaseTableListener
 	logger            zerolog.Logger
-	mqttClient        *mq.Client
-	topicManager      *mq.TopicManager
 	stationService    *services.StationService
 	stationRepository *repositories.StationRepository
 }
 
 func NewStationTableListener(
 	logger zerolog.Logger,
-	mqttClient *mq.Client,
-	topicManager *mq.TopicManager,
 	stationService *services.StationService,
 	stationRepository *repositories.StationRepository,
 ) *StationTableListener {
 	return &StationTableListener{
 		BaseTableListener: NewBaseTableListener("stations"),
 		logger:            logger,
-		mqttClient:        mqttClient,
-		topicManager:      topicManager,
 		stationService:    stationService,
 		stationRepository: stationRepository,
 	}
@@ -70,22 +63,6 @@ func (d *StationTableListener) handleInsert(ctx context.Context, event *interfac
 		d.logger.Error().Err(err).Msg("Failed to marshal station data")
 	}
 
-	err = d.stationService.ProcessDbCreate(ctx, station)
-	if err != nil {
-		d.logger.Error().Err(err).
-			Msg("Failed to process station to MQTTConfig after creation")
-	}
-
-	baseTopic := d.topicManager.GetBaseTopic()
-	topic := baseTopic + "/events/stations/created"
-	if err := d.mqttClient.PublishJson(topic, map[string]interface{}{
-		"event":     "station_created",
-		"station":   event.NewData,
-		"timestamp": event.Timestamp,
-	}); err != nil {
-		d.logger.Error().Err(err).Msg("Failed to publish station creation event")
-	}
-
 	return nil
 }
 
@@ -99,23 +76,6 @@ func (d *StationTableListener) handleUpdate(ctx context.Context, event *interfac
 	err = json.Unmarshal(newData, &station)
 	if err != nil {
 		d.logger.Error().Err(err).Msg("Failed to marshal station data")
-	}
-
-	err = d.stationService.ProcessDbUpdate(ctx, station)
-	if err != nil {
-		d.logger.Error().Err(err).
-			Msg("Failed to process station to MQTTConfig after update")
-	}
-
-	baseTopic := d.topicManager.GetBaseTopic()
-	topic := baseTopic + "/events/stations/updated"
-	if err := d.mqttClient.PublishJson(topic, map[string]interface{}{
-		"event":     "station_updated",
-		"old_data":  event.OldData,
-		"new_data":  event.NewData,
-		"timestamp": event.Timestamp,
-	}); err != nil {
-		d.logger.Error().Err(err).Msg("Failed to publish station update event")
 	}
 
 	return nil
@@ -134,22 +94,6 @@ func (d *StationTableListener) handleDelete(ctx context.Context, event *interfac
 	}
 	now := time.Now()
 	station.DeletedAt = &now
-
-	err = d.stationService.ProcessDbDelete(ctx, station)
-	if err != nil {
-		d.logger.Error().Err(err).
-			Msg("Failed to process station to MQTTConfig after creation")
-	}
-
-	baseTopic := d.topicManager.GetBaseTopic()
-	topic := baseTopic + "/events/stations/deleted"
-	if err := d.mqttClient.PublishJson(topic, map[string]interface{}{
-		"event":        "station_deleted",
-		"deleted_data": event.OldData,
-		"timestamp":    event.Timestamp,
-	}); err != nil {
-		d.logger.Error().Err(err).Msg("Failed to publish station deletion event")
-	}
 
 	return nil
 }

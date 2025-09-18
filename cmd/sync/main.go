@@ -11,34 +11,27 @@ import (
 	"gps-no-sync/internal/database/postgres/repositories"
 	"gps-no-sync/internal/interfaces"
 	"gps-no-sync/internal/logger"
-	"gps-no-sync/internal/mq"
-	"gps-no-sync/internal/mq/handlers"
+	"gps-no-sync/internal/mqtt"
+	"gps-no-sync/internal/mqtt/handlers"
 	"gps-no-sync/internal/services"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 )
 
 type ApplicationImpl struct {
 	configWrapper config.WrapperImpl
+
+	broker *mqtt.BrokerImpl
 
 	postgresDB      *postgres.PostgresDB
 	influxDB        *influxdb.InfluxDB
 	listenerManager interfaces.IListenerManager
 
 	stationRepository *repositories.StationRepository
-	clusterRepository *repositories.ClusterRepository
 
 	stationService     *services.StationService
-	clusterService     *services.ClusterService
 	measurementService *services.MeasurementService
-
-	mqttClient         *mq.Client
-	topicManager       *mq.TopicManager
-	stationHandler     *handlers.StationHandler
-	clusterHandler     *handlers.ClusterHandler
-	measurementHandler *handlers.MeasurementHandler
 
 	shutdownChan chan os.Signal
 	ctx          context.Context
@@ -52,18 +45,24 @@ func main() {
 		log.Fatal().Err(err).Msg("Failed to initialize application")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	err := app.stationService.SyncAll(ctx)
+	stationList, err := app.stationService.GetAll(context.Background())
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to sync all stations to MQTTConfig")
+		log.Error().Err(err).Msg("Failed to retrieve stations from database")
+	}
+	publisher := app.broker.GetPublisher()
+	err = publisher.PublishStationList(stationList)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to publish station list to MQTT")
 	}
 
-	err = app.clusterService.SyncAll(ctx)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to sync all clusters to MQTTConfig")
-	}
+	/*
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+			err := app.stationService.SyncAll(ctx)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to sync all stations to MQTTConfig")
+			}
+	*/
 
 	if err := app.run(); err != nil {
 		log.Fatal().Err(err).Msg("Failed to run application")
@@ -87,7 +86,7 @@ func (app *ApplicationImpl) initialize() error {
 		return fmt.Errorf("error while initialize databases: %w", err)
 	}
 
-	if err := app.initializeMQTT(); err != nil {
+	if err := app.initializeMqtt(); err != nil {
 		return fmt.Errorf("error while initializing MQTT: %w", err)
 	}
 
@@ -99,9 +98,15 @@ func (app *ApplicationImpl) initialize() error {
 		return fmt.Errorf("error while initializing services: %w", err)
 	}
 
-	if err := app.setupTopicHandlers(); err != nil {
+	if err := app.registerHandlers(); err != nil {
+		return fmt.Errorf("error while registering handlers: %w", err)
+	}
+
+	/*if err := app.setupTopicHandlers(); err != nil {
 		return fmt.Errorf("error while setting up topic handlers: %w", err)
 	}
+
+	*/
 
 	if err := app.setupTableListeners(); err != nil {
 		return fmt.Errorf("error while setting up table listeners: %w", err)
@@ -126,44 +131,6 @@ func (app *ApplicationImpl) initializeDatabases() error {
 	return nil
 }
 
-func (app *ApplicationImpl) setupTopicHandlers() error {
-	app.stationHandler = handlers.NewStationHandler(
-		app.stationService,
-		logger.GetLogger("station-handler"),
-		app.topicManager,
-	)
-
-	app.clusterHandler = handlers.NewClusterHandler(
-		app.clusterService,
-		logger.GetLogger("cluster-handler"),
-		app.topicManager,
-	)
-
-	app.measurementHandler = handlers.NewMeasurementHandler(
-		app.measurementService,
-		logger.GetLogger("measurement-handler"),
-		app.topicManager,
-	)
-
-	qos := app.configWrapper.MQTTConfig.QoS
-	stationTopic := app.topicManager.GetStationTopic()
-	if err := app.mqttClient.Subscribe(stationTopic, qos, app.stationHandler.HandleMessage); err != nil {
-		return fmt.Errorf("error subscribing to station Topic: %w", err)
-	}
-
-	clusterTopic := app.topicManager.GetClusterTopic()
-	if err := app.mqttClient.Subscribe(clusterTopic, qos, app.clusterHandler.HandleMessage); err != nil {
-		return fmt.Errorf("error subscribing to cluster Topic: %w", err)
-	}
-
-	measurementTopic := app.topicManager.GetMeasurementTopic()
-	if err := app.mqttClient.Subscribe(measurementTopic, qos, app.measurementHandler.HandleMessage); err != nil {
-		return fmt.Errorf("error subscribing to measurement Topic: %w", err)
-	}
-
-	return nil
-}
-
 func (app *ApplicationImpl) setupTableListeners() error {
 	dsn := app.configWrapper.PostgresConfig.Dsn
 
@@ -173,26 +140,17 @@ func (app *ApplicationImpl) setupTableListeners() error {
 		logger.GetLogger("listener-manager"),
 	)
 
-	stationListener := listeners.NewStationTableListener(
-		logger.GetLogger("station-listener"),
-		app.mqttClient,
-		app.topicManager,
-		app.stationService,
-		app.stationRepository,
-	)
-	if err := app.listenerManager.RegisterListener(stationListener); err != nil {
-		return fmt.Errorf("failed to register station listener: %w", err)
-	}
+	/*
+		stationListener := listeners.NewStationTableListener(
+			logger.GetLogger("station-listener"),
 
-	clusterListener := listeners.NewClusterTableListener(
-		logger.GetLogger("cluster-listener"),
-		app.mqttClient,
-		app.topicManager,
-		app.clusterService,
-	)
-	if err := app.listenerManager.RegisterListener(clusterListener); err != nil {
-		return fmt.Errorf("failed to register cluster listener: %w", err)
-	}
+			app.stationService,
+			app.stationRepository,
+		)
+		if err := app.listenerManager.RegisterListener(stationListener); err != nil {
+			return fmt.Errorf("failed to register station listener: %w", err)
+		}
+	*/
 
 	if err := app.listenerManager.Initialize(); err != nil {
 		return fmt.Errorf("failed to initialize listener manager: %w", err)
@@ -208,7 +166,6 @@ func (app *ApplicationImpl) initializeRepositories() error {
 	db := app.postgresDB.GetDB()
 
 	app.stationRepository = repositories.NewStationRepository(db)
-	app.clusterRepository = repositories.NewClusterRepository(db)
 
 	log.Info().
 		Str("component", "main").
@@ -217,27 +174,20 @@ func (app *ApplicationImpl) initializeRepositories() error {
 }
 
 func (app *ApplicationImpl) initializeServices() error {
-	app.clusterService = services.NewClusterService(
-		app.clusterRepository,
-		app.mqttClient,
-		app.topicManager,
-		logger.GetLogger("cluster-service"),
-	)
 
 	app.stationService = services.NewStationService(
 		app.stationRepository,
-		app.clusterService,
-		app.clusterRepository,
-		app.mqttClient,
-		app.topicManager,
 		logger.GetLogger("station-service"),
 	)
 
-	app.measurementService = services.NewMeasurementService(
-		app.influxDB,
-		app.topicManager,
-		logger.GetLogger("measurement-service"),
-	)
+	/*
+		app.measurementService = services.NewMeasurementService(
+			app.influxDB,
+			app.topicManager,
+			logger.GetLogger("measurement-service"),
+		)
+
+	*/
 
 	log.Info().
 		Str("component", "main").
@@ -245,27 +195,41 @@ func (app *ApplicationImpl) initializeServices() error {
 	return nil
 }
 
-func (app *ApplicationImpl) initializeMQTT() error {
-	var err error
+func (app *ApplicationImpl) initializeMqtt() error {
+	app.broker = mqtt.NewBroker(&app.configWrapper.MQTTConfig, log.Logger)
 
-	baseTopic := app.configWrapper.MQTTConfig.BaseTopic
-	app.topicManager = mq.NewTopicManager(baseTopic, logger.GetLogger("topic-manager"))
-
-	app.mqttClient, err = mq.NewClient(&app.configWrapper.MQTTConfig, logger.GetLogger("mqtt-client"))
-	if err != nil {
-		return fmt.Errorf("could not create MQTT client: %w", err)
+	ctx := context.Background()
+	if err := app.broker.Start(ctx); err != nil {
+		log.Fatal().Err(err).Msg("Failed to start MQTT broker")
 	}
 
-	connectCtx, cancel := context.WithTimeout(app.ctx, 30*time.Second)
-	defer cancel()
-
-	if err := app.mqttClient.Connect(connectCtx); err != nil {
-		return fmt.Errorf("could not connect to MQTT broker: %w", err)
-	}
+	log.Info().Msg("GPS-No-Sync service started successfully")
 
 	log.Info().
 		Str("component", "main").
 		Msg("Successfully initialized MQTT client")
+
+	return nil
+}
+
+func (app *ApplicationImpl) registerHandlers() error {
+	sHandler := handlers.NewStationHandler(
+		app.stationService,
+		app.broker.GetPublisher(),
+		log.Logger,
+	)
+
+	router := app.broker.GetRouter()
+	router.RegisterHandler("gpsno/v2/stations", sHandler)
+
+	subscriber := app.broker.GetSubscriber()
+	if err := subscriber.Subscribe("gpsno/v2/stations", 1); err != nil {
+		log.Fatal().Err(err).Msg("Failed to subscribe to stations topic")
+	}
+
+	log.Info().
+		Str("component", "main").
+		Msg("Successfully registered MQTT topic handlers")
 
 	return nil
 }
@@ -284,10 +248,6 @@ func (app *ApplicationImpl) run() error {
 func (app *ApplicationImpl) shutdown() error {
 	if app.listenerManager != nil {
 		app.listenerManager.Stop()
-	}
-
-	if app.mqttClient != nil {
-		app.mqttClient.Disconnect(app.ctx)
 	}
 
 	if app.postgresDB != nil {

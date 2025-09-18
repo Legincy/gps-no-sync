@@ -22,10 +22,9 @@ func (r *StationRepository) CreateOrUpdate(ctx context.Context, station *models.
 
 		if result.Error == nil {
 			updateMap := map[string]interface{}{
-				"name":       station.Name,
-				"topic":      station.Topic,
-				"config":     station.Config,
-				"cluster_id": station.ClusterID,
+				"name":   station.Name,
+				"topic":  station.Topic,
+				"config": station.Config,
 			}
 
 			return tx.Model(&models.Station{}).
@@ -52,7 +51,6 @@ func (r *StationRepository) Update(ctx context.Context, station *models.Station)
 			"name":        station.Name,
 			"topic":       station.Topic,
 			"config":      station.Config,
-			"cluster_id":  station.ClusterID,
 			"mac_address": station.MacAddress,
 		}).Error
 }
@@ -69,6 +67,15 @@ func (r *StationRepository) FindByMacAddress(ctx context.Context, macAddress str
 func (r *StationRepository) FindAllWhereIsNotDeleted(ctx context.Context) ([]models.Station, error) {
 	var stations []models.Station
 	err := r.db.WithContext(ctx).Preload("Cluster").Where("deleted_at IS NULL").Find(&stations).Error
+	if err != nil {
+		return nil, err
+	}
+	return stations, nil
+}
+
+func (r *StationRepository) FindAll(ctx context.Context) ([]*models.Station, error) {
+	var stations []*models.Station
+	err := r.db.WithContext(ctx).Find(&stations).Error
 	if err != nil {
 		return nil, err
 	}
