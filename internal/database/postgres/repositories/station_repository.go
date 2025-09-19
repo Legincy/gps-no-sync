@@ -81,3 +81,12 @@ func (r *StationRepository) FindAll(ctx context.Context) ([]*models.Station, err
 	}
 	return stations, nil
 }
+
+func (r *StationRepository) FindByTopic(ctx context.Context, topic string) (*models.Station, error) {
+	var station models.Station
+	err := r.db.WithContext(ctx).Where("topic = ?", topic).First(&station).Error
+	if err != nil {
+		return nil, err
+	}
+	return &station, nil
+}

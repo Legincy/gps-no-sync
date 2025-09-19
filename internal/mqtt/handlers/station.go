@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	mqtt2 "github.com/eclipse/paho.mqtt.golang"
+	mq "github.com/eclipse/paho.mqtt.golang"
 	"github.com/rs/zerolog"
 	"gps-no-sync/internal/models"
 	"gps-no-sync/internal/mqtt"
@@ -12,9 +12,14 @@ import (
 	"strings"
 )
 
-type IncomingStationMessage struct {
+type StationRootMessage struct {
 	Action mqtt.Action            `json:"action"`
 	Source string                 `json:"source"`
+	Data   map[string]interface{} `json:"data"`
+}
+
+type IncomingStationSubMessage struct {
+	string `json:"source"`
 	Data   map[string]interface{} `json:"data"`
 }
 
@@ -27,38 +32,84 @@ type StationHandlerImpl struct {
 	stationService *services.StationService
 	publisher      *mqtt.PublisherImpl
 	logger         zerolog.Logger
+	topicManager   *mqtt.TopicManagerImpl
 }
 
 func NewStationHandler(
 	stationService *services.StationService,
 	publisher *mqtt.PublisherImpl,
+	topicManager *mqtt.TopicManagerImpl,
 	logger zerolog.Logger,
 ) *StationHandlerImpl {
 	return &StationHandlerImpl{
 		stationService: stationService,
 		publisher:      publisher,
 		logger:         logger.With().Str("handler", "station").Logger(),
+		topicManager:   topicManager,
 	}
 }
 
-func (h *StationHandlerImpl) Process(ctx context.Context, msg mqtt2.Message) error {
-	_ = msg.Topic()
+func (h *StationHandlerImpl) Process(ctx context.Context, msg mq.Message) error {
+	topic := msg.Topic()
 	payload := msg.Payload()
 
-	var stationMessage IncomingStationMessage
-	if err := json.Unmarshal(payload, &stationMessage); err != nil {
-		return fmt.Errorf("failed to parse message: %w", err)
+	topicInfo, err := h.topicManager.ParseTopic(topic)
+	if err != nil {
+		return fmt.Errorf("invalid topic: %w", err)
 	}
 
-	switch stationMessage.Action {
-	case mqtt.ActionRegister:
-		return h.HandleRegister(ctx, &stationMessage)
-	default:
-		return fmt.Errorf("unknown action: %s", stationMessage.Action)
+	h.logger.Debug().
+		Str("topic", topic).
+		Str("type", topicInfo.Type).
+		Str("id", topicInfo.ID).
+		Bool("is_root", topicInfo.IsRoot).
+		Msg("Processing station message")
+
+	if topicInfo.IsRoot {
+		var stationMessage StationRootMessage
+		if err := json.Unmarshal(payload, &stationMessage); err != nil {
+			return fmt.Errorf("failed to parse message: %w", err)
+		}
+
+		switch stationMessage.Action {
+		case mqtt.ActionRegister:
+			return h.HandleRegister(ctx, &stationMessage)
+		default:
+			return fmt.Errorf("unknown action: %s", stationMessage.Action)
+		}
+	} else {
+		if len(payload) == 0 {
+			if err := h.publisher.ClearRetainedMessage(topic); err != nil {
+				return fmt.Errorf("failed to publish empty message to unregistered station: %w", err)
+			}
+		}
 	}
+
+	return nil
 }
 
-func (h *StationHandlerImpl) HandleRegister(ctx context.Context, msg *IncomingStationMessage) error {
+func (h *StationHandlerImpl) HandleSubMessage(ctx context.Context, msg mq.Message) error {
+	topic := msg.Topic()
+
+	station, err := h.stationService.GetByTopic(ctx, topic)
+	fmt.Println(station, err, topic, string(msg.Payload()))
+	if err != nil {
+		if len(string(msg.Payload())) > 0 {
+			if err := h.publisher.ClearRetainedMessage(topic); err != nil {
+				return fmt.Errorf("failed to publish empty message to unregistered station: %w", err)
+			}
+		}
+		return nil
+	}
+
+	if err := h.publisher.PublishStation(station); err != nil {
+		return fmt.Errorf("failed to republish station entity: %w", err)
+	}
+
+	return nil
+}
+
+func (h *StationHandlerImpl) HandleRegister(ctx context.Context, msg *StationRootMessage) error {
 	h.logger.Info().
 		Str("source", msg.Source).
 		Str("action", string(msg.Action)).
@@ -101,21 +152,7 @@ func (h *StationHandlerImpl) HandleRegister(ctx context.Context, msg *IncomingSt
 	return nil
 }
 
-func normalizeMacAddress(mac string) string {
-	mac = strings.ToLower(mac)
-
-	if len(mac) == 12 && !strings.Contains(mac, ":") {
-		parts := []string{
-			mac[0:2], mac[2:4], mac[4:6],
-			mac[6:8], mac[8:10], mac[10:12],
-		}
-		return strings.Join(parts, ":")
-	}
-
-	return mac
-}
-
-func (m *IncomingStationMessage) ToStationDto() (*models.StationDto, error) {
+func (m *StationRootMessage) ToStationDto() (*models.StationDto, error) {
 	var stationDto models.StationDto
 
 	stationDto.MacAddress = normalizeMacAddress(m.Source)
@@ -130,4 +167,18 @@ func (m *IncomingStationMessage) ToStationDto() (*models.StationDto, error) {
 	}
 
 	return &stationDto, nil
+}
+
+func normalizeMacAddress(mac string) string {
+	mac = strings.ToLower(mac)
+
+	if len(mac) == 12 && !strings.Contains(mac, ":") {
+		parts := []string{
+			mac[0:2], mac[2:4], mac[4:6],
+			mac[6:8], mac[8:10], mac[10:12],
+		}
+		return strings.Join(parts, ":")
+	}
+
+	return mac
 }

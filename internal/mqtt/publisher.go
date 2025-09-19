@@ -10,7 +10,7 @@ import (
 )
 
 type Publisher interface {
-	Publish(topic string, message interface{}, qos byte, retained bool) error
+	PublishInterface(topic string, message interface{}, qos byte, retained bool) error
 }
 
 type PublisherImpl struct {
@@ -25,7 +25,7 @@ func NewPublisher(client mqtt.Client, logger zerolog.Logger) *PublisherImpl {
 	}
 }
 
-func (p *PublisherImpl) Publish(topic string, message interface{}, qos byte, retained bool) error {
+func (p *PublisherImpl) PublishInterface(topic string, message interface{}, qos byte, retained bool) error {
 	payload, err := json.Marshal(message)
 	if err != nil {
 		return fmt.Errorf("failed to marshal message: %w", err)
@@ -47,6 +47,30 @@ func (p *PublisherImpl) Publish(topic string, message interface{}, qos byte, ret
 	return nil
 }
 
+func (p *PublisherImpl) Publish(topic string, payload []byte, qos byte, retained bool) error {
+	token := p.client.Publish(topic, qos, retained, payload)
+
+	if !token.WaitTimeout(5 * time.Second) {
+		return fmt.Errorf("publish timeout")
+	}
+
+	if err := token.Error(); err != nil {
+		return fmt.Errorf("publish failed: %w", err)
+	}
+
+	p.logger.Debug().
+		Str("topic", topic).
+		Int("size", len(payload)).
+		Bool("retained", retained).
+		Msg("Raw message published")
+
+	return nil
+}
+
+func (p *PublisherImpl) ClearRetainedMessage(topic string) error {
+	return p.Publish(topic, nil, 0, true)
+}
+
 func (p *PublisherImpl) PublishStation(station *models.Station) error {
 	stationDto := station.ToDto()
 	msg := OutgoingMessage{
@@ -57,7 +81,7 @@ func (p *PublisherImpl) PublishStation(station *models.Station) error {
 
 	topic := fmt.Sprintf("gpsno/v2/stations/%s", station.Topic)
 
-	return p.Publish(topic, msg, 1, true)
+	return p.PublishInterface(topic, msg, 1, true)
 }
 
 func (p *PublisherImpl) PublishStationList(stations []*models.Station) error {

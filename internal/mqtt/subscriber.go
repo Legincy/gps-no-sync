@@ -27,6 +27,15 @@ func NewSubscriber(client mqtt.Client, router *RouterImpl, logger zerolog.Logger
 	}
 }
 
+func (s *SubscriberImpl) SubscribeMultiple(topics []string, qos byte) error {
+	for _, topic := range topics {
+		if err := s.Subscribe(topic, qos); err != nil {
+			return fmt.Errorf("failed to subscribe to topic %s: %w", topic, err)
+		}
+	}
+	return nil
+}
+
 func (s *SubscriberImpl) Subscribe(topic string, qos byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

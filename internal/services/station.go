@@ -62,3 +62,11 @@ func (s *StationService) RegisterStation(ctx context.Context, station *models.St
 
 	return nil
 }
+
+func (s *StationService) GetByTopic(ctx context.Context, topic string) (*models.Station, error) {
+	station, err := s.stationRepository.FindByTopic(ctx, topic)
+	if err != nil {
+		return nil, fmt.Errorf("error finding station by topic: %w", err)
+	}
+	return station, nil
+}

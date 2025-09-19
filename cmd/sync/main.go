@@ -22,7 +22,8 @@ import (
 type ApplicationImpl struct {
 	configWrapper config.WrapperImpl
 
-	broker *mqtt.BrokerImpl
+	broker       *mqtt.BrokerImpl
+	topicManager *mqtt.TopicManagerImpl
 
 	postgresDB      *postgres.PostgresDB
 	influxDB        *influxdb.InfluxDB
@@ -180,14 +181,10 @@ func (app *ApplicationImpl) initializeServices() error {
 		logger.GetLogger("station-service"),
 	)
 
-	/*
-		app.measurementService = services.NewMeasurementService(
-			app.influxDB,
-			app.topicManager,
-			logger.GetLogger("measurement-service"),
-		)
-
-	*/
+	app.measurementService = services.NewMeasurementService(
+		app.influxDB,
+		logger.GetLogger("measurement-service"),
+	)
 
 	log.Info().
 		Str("component", "main").
@@ -203,7 +200,7 @@ func (app *ApplicationImpl) initializeMqtt() error {
 		log.Fatal().Err(err).Msg("Failed to start MQTT broker")
 	}
 
-	log.Info().Msg("GPS-No-Sync service started successfully")
+	app.topicManager = mqtt.NewTopicManager(app.configWrapper.MQTTConfig.BaseTopic)
 
 	log.Info().
 		Str("component", "main").
@@ -213,18 +210,32 @@ func (app *ApplicationImpl) initializeMqtt() error {
 }
 
 func (app *ApplicationImpl) registerHandlers() error {
+	stationTopics := []string{app.topicManager.GetStationRootTopic(), app.topicManager.GetStationSubTopic()}
 	sHandler := handlers.NewStationHandler(
 		app.stationService,
 		app.broker.GetPublisher(),
+		app.topicManager,
+		log.Logger,
+	)
+
+	measurementTopics := []string{app.topicManager.GetMeasurementRootTopic(), app.topicManager.GetMeasurementSubTopic()}
+	mHandler := handlers.NewMeasurementHandler(
+		app.measurementService,
+		app.broker.GetPublisher(),
+		app.topicManager,
 		log.Logger,
 	)
 
 	router := app.broker.GetRouter()
-	router.RegisterHandler("gpsno/v2/stations", sHandler)
+	router.RegisterMultipleTopics(stationTopics, sHandler)
+	router.RegisterMultipleTopics(measurementTopics, mHandler)
 
 	subscriber := app.broker.GetSubscriber()
-	if err := subscriber.Subscribe("gpsno/v2/stations", 1); err != nil {
-		log.Fatal().Err(err).Msg("Failed to subscribe to stations topic")
+	if err := subscriber.SubscribeMultiple(stationTopics, 1); err != nil {
+		log.Fatal().Err(err).Msg("Failed to subscribe to stations topics")
+	}
+	if err := subscriber.SubscribeMultiple(measurementTopics, 1); err != nil {
+		log.Fatal().Err(err).Msg("Failed to subscribe to measurement topics")
 	}
 
 	log.Info().

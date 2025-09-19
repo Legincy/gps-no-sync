@@ -28,6 +28,12 @@ func NewRouter(logger zerolog.Logger) *RouterImpl {
 	}
 }
 
+func (r *RouterImpl) RegisterMultipleTopics(topicPatterns []string, handler TopicHandler) {
+	for _, topicPattern := range topicPatterns {
+		r.RegisterHandler(topicPattern, handler)
+	}
+}
+
 func (r *RouterImpl) RegisterHandler(topicPattern string, handler TopicHandler) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
